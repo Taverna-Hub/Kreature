@@ -1,6 +1,8 @@
 import { lazy, Suspense, type ComponentType } from "react";
-import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter, redirect, Outlet } from "@tanstack/react-router";
 import { AppShell } from "@/app/AppShell";
+import { hasLocalSession } from "@/auth/session";
+import { LoginPage } from "@/features/auth/LoginPage";
 
 function lazyPage(load: () => Promise<{ default: ComponentType }>) {
   const LazyPage = lazy(load);
@@ -16,52 +18,63 @@ const InvestmentsPage = lazyPage(() => import("@/features/finance/FinancePages")
 const PlanningPage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.PlanningPage })));
 const ProfilePage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.ProfilePage })));
 
-const root = createRootRoute({ component: AppShell });
-const index = createRoute({
+const root = createRootRoute({ component: Outlet });
+const login = createRoute({
   getParentRoute: () => root,
+  path: "/login",
+  beforeLoad: () => {
+    if (hasLocalSession()) throw redirect({ to: "/resumo" });
+  },
+  component: LoginPage,
+});
+const authenticated = createRoute({
+  getParentRoute: () => root,
+  id: "authenticated",
+  beforeLoad: () => {
+    if (!hasLocalSession()) throw redirect({ to: "/login" });
+  },
+  component: AppShell,
+});
+const index = createRoute({
+  getParentRoute: () => authenticated,
   path: "/",
   beforeLoad: () => {
     throw redirect({ to: "/resumo" });
   },
 });
 const summary = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => authenticated,
   path: "/resumo",
   component: SummaryPage,
 });
 const launches = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => authenticated,
   path: "/lancamentos",
   component: LaunchesPage,
 });
 const institutions = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => authenticated,
   path: "/patrimonio/instituicoes",
   component: InstitutionsPage,
 });
 const investments = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => authenticated,
   path: "/patrimonio/investimentos",
   component: InvestmentsPage,
 });
 const planning = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => authenticated,
   path: "/planejamento",
   component: PlanningPage,
 });
 const profile = createRoute({
-  getParentRoute: () => root,
+  getParentRoute: () => authenticated,
   path: "/perfil",
   component: ProfilePage,
 });
 const routeTree = root.addChildren([
-  index,
-  summary,
-  launches,
-  institutions,
-  investments,
-  planning,
-  profile,
+  login,
+  authenticated.addChildren([index, summary, launches, institutions, investments, planning, profile]),
 ]);
 export const router = createRouter({ routeTree, defaultPreload: "intent" });
 declare module "@tanstack/react-router" {

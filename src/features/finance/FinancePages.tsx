@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useState, type MouseEvent } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   FileUp,
   Pencil,
@@ -9,6 +9,7 @@ import {
   Sparkles,
   Monitor,
   Moon,
+  LogOut,
   Sun,
   Trash2,
   TrendingUp,
@@ -62,6 +63,7 @@ import { Page } from "@/shared/ui/Page";
 import { Tabs } from "@/shared/ui/Tabs";
 import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
+import { endLocalSession } from "@/auth/session";
 
 const DashboardCharts = lazy(() => import("@/features/summary/DashboardCharts").then((module) => ({ default: module.DashboardCharts })));
 const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCustomizer").then((module) => ({ default: module.CharacterCustomizer })));
@@ -2010,7 +2012,9 @@ function PlanningDialog({
 
 export function ProfilePage() {
   const { state, commit } = useFinance();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
   return (
     <Page
       eyebrow="Seu espaço"
@@ -2025,10 +2029,28 @@ export function ProfilePage() {
           <p>Personalize formato, cor, expressão, acessórios, moldura, fundo e identidade. As alterações ficam somente neste navegador.</p>
           <Button onClick={() => setEditing(true)}><Sparkles />Editar personagem</Button>
           <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => void commit((draft) => { draft.theme = mode; })} />
+          <section className="profile-session" aria-labelledby="session-title">
+            <div>
+              <span className="eyebrow">Sessão</span>
+              <h2 id="session-title">Acesso neste dispositivo</h2>
+              <p>Sair fecha apenas esta sessão. Seus dados financeiros locais permanecem aqui.</p>
+            </div>
+            <Button variant="secondary" onClick={() => setSignOutOpen(true)}><LogOut />Sair</Button>
+          </section>
         </article>}
         {editing ? <CharacterCustomizer value={state.profile} onCancel={() => setEditing(false)} onSave={async (profile) => { await commit((draft) => { draft.profile = profile; }); setEditing(false); }} /> : <div className="profile-card-wrap"><ProfileCard config={state.profile} size={168} /></div>}
         </section>
       </Suspense>
+      {signOutOpen && <Modal title="Sair do Kreature" onClose={() => setSignOutOpen(false)}>
+        <p className="modal-copy">Você voltará para a tela de entrada. Seus dados financeiros locais não serão apagados.</p>
+        <div className="form-actions">
+          <Button variant="secondary" onClick={() => setSignOutOpen(false)}>Cancelar</Button>
+          <Button variant="danger" onClick={() => {
+            endLocalSession();
+            void navigate({ to: "/login" });
+          }}><LogOut />Sair agora</Button>
+        </div>
+      </Modal>}
     </Page>
   );
 }
