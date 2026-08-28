@@ -4,24 +4,33 @@ import { DEFAULT_PROFILE } from "@/features/profile/types";
 export const now = () => new Date().toISOString();
 export const uid = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
-const categorySeed: Array<[string, string, string]> = [
-  ["Moradia", "Home", "#f97316"],
-  ["Alimentação", "Utensils", "#0d9488"],
-  ["Transporte", "Car", "#0ea5e9"],
-  ["Saúde", "HeartPulse", "#ec4899"],
-  ["Educação", "GraduationCap", "#8b5cf6"],
-  ["Lazer", "Sparkles", "#eab308"],
-  ["Salário", "Wallet", "#34d399"],
-  ["Investimentos", "TrendingUp", "#1e40af"],
-  ["Outros", "CircleEllipsis", "#64748b"],
+const categorySeed: Array<[string, string, string, Category["flow"]]> = [
+  ["Moradia", "Home", "#f97316", "expense"],
+  ["Alimentação", "Utensils", "#0d9488", "expense"],
+  ["Transporte", "Car", "#0ea5e9", "expense"],
+  ["Saúde", "HeartPulse", "#ec4899", "expense"],
+  ["Educação", "GraduationCap", "#8b5cf6", "expense"],
+  ["Lazer", "Sparkles", "#eab308", "expense"],
+  ["Assinaturas", "Repeat2", "#6366f1", "expense"],
+  ["Compras", "ShoppingBag", "#f43f5e", "expense"],
+  ["Outros", "CircleEllipsis", "#64748b", "expense"],
+  ["Salário", "Wallet", "#34d399", "income"],
+  ["Aluguel recebido", "House", "#14b8a6", "income"],
+  ["Freela e serviços", "BriefcaseBusiness", "#8b5cf6", "income"],
+  ["Vendas", "Store", "#f59e0b", "income"],
+  ["Rendimentos", "ChartNoAxesCombined", "#0ea5e9", "income"],
+  ["Benefícios", "Gift", "#ec4899", "income"],
+  ["Reembolsos", "RotateCcw", "#22c55e", "income"],
+  ["Outras receitas", "CircleEllipsis", "#64748b", "income"],
 ];
 
 export function defaultCategories(timestamp = now()): Category[] {
-  return categorySeed.map(([name, icon, color], index) => ({
-    id: `default-${index + 1}`,
+  return categorySeed.map(([name, icon, color, flow], index) => ({
+    id: `default-${flow}-${index + 1}`,
     name,
     icon,
     color,
+    flow,
     isDefault: true,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -31,6 +40,7 @@ export function defaultCategories(timestamp = now()): Category[] {
 export function emptyFinanceState(): FinanceState {
   return {
     categories: defaultCategories(),
+    classificationRules: [],
     institutions: [],
     entries: [],
     investments: [],

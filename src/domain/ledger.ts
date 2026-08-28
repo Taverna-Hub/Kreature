@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { now, uid } from "./defaults";
+import { learnClassificationRule } from "./classification";
 import type { FinanceState, LedgerEntry } from "./types";
 
 export type EntryInput = Omit<
@@ -48,6 +49,7 @@ export function recordEntry(state: FinanceState, input: EntryInput): LedgerEntry
     throw new Error("Categoria inválida ou arquivada.");
   const entry = buildEntry(input);
   state.entries.push(entry);
+  if ((input.source ?? "manual") === "manual") learnClassificationRule(state, entry);
   return entry;
 }
 
@@ -57,6 +59,7 @@ export function updateEntry(state: FinanceState, id: string, input: EntryInput):
   const previous = state.entries[index];
   const updated = buildEntry(input, id, previous.createdAt);
   state.entries[index] = updated;
+  if ((input.source ?? "manual") === "manual") learnClassificationRule(state, updated);
   return updated;
 }
 

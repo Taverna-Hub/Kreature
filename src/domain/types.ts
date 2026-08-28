@@ -3,6 +3,7 @@ import type { ProfileConfig } from "@/features/profile/types";
 export type CurrencyCode = string;
 export type DecimalValue = string;
 export type ThemeMode = "light" | "dark" | "system";
+export type CategoryFlow = "income" | "expense";
 export type InstitutionType = "bank" | "broker" | "wallet" | "other";
 export type EntryKind =
   | "income"
@@ -34,9 +35,19 @@ export interface Category {
   name: string;
   icon: string;
   color: string;
+  flow: CategoryFlow;
   image?: Blob;
   isDefault: boolean;
   archivedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClassificationRule {
+  id: string;
+  match: string;
+  categoryId: string;
+  kind: CategoryFlow;
   createdAt: string;
   updatedAt: string;
 }
@@ -203,6 +214,8 @@ export interface ImportCandidate {
   exchangeRate?: DecimalValue;
   kind: EntryKind;
   categoryId?: string;
+  suggestedKind: EntryKind;
+  suggestedCategoryId?: string;
   institutionId?: string;
   confidence: number;
   reason: string;
@@ -216,6 +229,7 @@ export interface ImportCandidate {
 
 export interface FinanceState {
   categories: Category[];
+  classificationRules: ClassificationRule[];
   institutions: Institution[];
   entries: LedgerEntry[];
   investments: Investment[];

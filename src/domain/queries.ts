@@ -18,6 +18,20 @@ export function matchesPeriod(date: string, filter: PeriodFilter): boolean {
 const included = (entry: LedgerEntry, includeInternal: boolean) =>
   includeInternal || !entry.ignoredFromAnalytics;
 
+const excludedFromCashflow = new Set(["transfer", "investment", "reserve", "credit_payment"]);
+const categoryFor = (state: FinanceState, entry: LedgerEntry) =>
+  state.categories.find((category) => category.id === entry.categoryId && !category.archivedAt);
+
+export function isAnalyticExpense(state: FinanceState, entry: LedgerEntry) {
+  const category = categoryFor(state, entry);
+  return new Decimal(entry.brlAmount).isNegative() && !excludedFromCashflow.has(entry.kind) && category?.flow === "expense";
+}
+
+export function isAnalyticIncome(state: FinanceState, entry: LedgerEntry) {
+  const category = categoryFor(state, entry);
+  return new Decimal(entry.brlAmount).isPositive() && !excludedFromCashflow.has(entry.kind) && (entry.kind === "income" || category?.flow === "income");
+}
+
 export function buildSummary(
   state: FinanceState,
   filter: PeriodFilter,
@@ -27,10 +41,10 @@ export function buildSummary(
     (item) => matchesPeriod(item.date, filter) && included(item, includeInternal),
   );
   const income = entries
-    .filter((item) => item.kind === "income")
+    .filter((item) => isAnalyticIncome(state, item))
     .reduce((sum, item) => sum.plus(item.brlAmount), new Decimal(0));
   const expenses = entries
-    .filter((item) => item.kind === "expense" || item.kind === "card_purchase")
+    .filter((item) => isAnalyticExpense(state, item))
     .reduce((sum, item) => sum.plus(new Decimal(item.brlAmount).abs()), new Decimal(0));
   const available = state.institutions
     .filter((item) => !item.archivedAt)
@@ -51,7 +65,7 @@ export function buildSummary(
     }, new Decimal(0));
   const categoryMap = new Map<string, Decimal>();
   entries
-    .filter((item) => item.kind === "expense" || item.kind === "card_purchase")
+    .filter((item) => isAnalyticExpense(state, item))
     .forEach((item) => {
       const key = item.categoryId ?? "uncategorized";
       categoryMap.set(

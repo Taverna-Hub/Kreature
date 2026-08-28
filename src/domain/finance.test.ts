@@ -73,6 +73,30 @@ describe("FinanceLedger", () => {
       source: "reconciliation",
     });
   });
+
+  it("inclui Pix importado categorizado nos gastos e no gráfico", () => {
+    const state = emptyFinanceState();
+    const food = state.categories.find((item) => item.name === "Alimentação")!;
+    state.entries.push({
+      id: "pix-market",
+      date: "2026-05-14",
+      description: "Pix enviado · Mercado",
+      amount: "-52.5",
+      brlAmount: "-52.5",
+      currency: "BRL",
+      kind: "pix",
+      categoryId: food.id,
+      source: "import",
+      ignoredFromAnalytics: false,
+      createdAt: "2026-05-14",
+      updatedAt: "2026-05-14",
+    });
+
+    expect(buildSummary(state, { mode: "month", month: 5, year: 2026 })).toMatchObject({
+      expenses: "52.5",
+      categoryTotals: [expect.objectContaining({ categoryId: food.id, amount: "52.5" })],
+    });
+  });
 });
 
 describe("histórico mensal", () => {

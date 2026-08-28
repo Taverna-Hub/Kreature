@@ -1,7 +1,8 @@
 import Papa from "papaparse";
 import Decimal from "decimal.js";
-import type { Category, EntryKind, FinanceState, ImportCandidate, InstitutionCatalogId } from "@/domain/types";
+import type { FinanceState, ImportCandidate, InstitutionCatalogId } from "@/domain/types";
 import { uid } from "@/domain/defaults";
+import { classifyTransaction, normalizeClassificationText } from "@/domain/classification";
 
 export type ImportAnalysis = {
   source: string;
@@ -13,7 +14,7 @@ export type ImportAnalysis = {
 
 type ParsedRow = { date: string; description: string; amount: string; externalId?: string; currency?: string };
 
-const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const normalize = normalizeClassificationText;
 const readText = (file: File) =>
   typeof file.text === "function"
     ? file.text()
@@ -77,29 +78,14 @@ export function cleanTransactionDescription(value: string) {
   return counterparty ? `${label} · ${counterparty}` : label;
 }
 
-function classify(description: string, amount: string, categories: Category[]) {
-  const text = normalize(description);
-  let kind: EntryKind = new Decimal(amount).isNegative() ? "expense" : "income";
-  let confidence = 0.62;
-  let reason = "Sinal do valor";
-  if (/\bpix\b/.test(text)) { kind = "pix"; confidence = 0.84; reason = "Pix identificado"; }
-  else if (/transfer/.test(text)) { kind = "transfer"; confidence = 0.78; reason = "Transferência identificada"; }
-  else if (/pagamento.*fatura|fatura.*paga|pagamento cartao/.test(text)) { kind = "credit_payment"; confidence = 0.9; reason = "Pagamento de fatura identificado"; }
-  else if (/aplicacao|investimento|rdb|cdb|tesouro|caixinha|dinheiro reservado/.test(text)) { kind = "investment"; confidence = 0.82; reason = "Aplicação financeira identificada"; }
-  const hints: Record<string, string[]> = { "Alimentação": ["mercado", "restaurante", "ifood", "padaria"], Transporte: ["uber", "posto", "combustivel"], Moradia: ["aluguel", "condominio", "energia", "internet"], Saúde: ["farmacia", "medico", "hospital"], "Salário": ["salario", "remuneracao", "folha"] };
-  const category = categories.find((item) => hints[item.name]?.some((hint) => text.includes(hint)));
-  if (category) { confidence = Math.max(confidence, 0.86); reason += ` e categoria ${category.name}`; }
-  return { kind, categoryId: category?.id, confidence, reason };
-}
-
 const fingerprint = (institutionId: string | undefined, date: string, description: string, amount: string) => `${institutionId ?? ""}|${date}|${normalize(description).replace(/\s+/g, " ")}|${amount}`;
 function candidate(row: ParsedRow, state: FinanceState, parser: string, institutionHint?: InstitutionCatalogId): ImportCandidate {
   const description = cleanTransactionDescription(row.description);
-  const result = classify(row.description, row.amount, state.categories);
+  const result = classifyTransaction(description, row.amount, state.categories, state.classificationRules);
   const key = fingerprint(institutionHint, row.date, description, row.amount);
   const same = state.entries.filter((entry) => entry.date === row.date && entry.amount === row.amount);
   const duplicate = state.entries.some((entry) => (row.externalId && entry.notes?.includes(`external:${row.externalId}`)) || entry.fingerprint === key);
-  return { id: uid("candidate"), date: row.date, description, amount: row.amount, currency: row.currency ?? "BRL", externalId: row.externalId, detectedInstitutionId: institutionHint, parser, source: parser, ...result, include: !duplicate, createInvestment: result.kind === "investment", fingerprint: key, duplicate, similarDuplicate: !duplicate && same.some((entry) => normalize(entry.description) === normalize(description)) };
+  return { id: uid("candidate"), date: row.date, description, amount: row.amount, currency: row.currency ?? "BRL", externalId: row.externalId, detectedInstitutionId: institutionHint, parser, source: parser, ...result, suggestedKind: result.kind, suggestedCategoryId: result.categoryId, include: !duplicate, createInvestment: result.kind === "investment", fingerprint: key, duplicate, similarDuplicate: !duplicate && same.some((entry) => normalize(entry.description) === normalize(description)) };
 }
 
 function validRows(rows: ParsedRow[], state: FinanceState, parser: string, hint?: InstitutionCatalogId): ImportAnalysis {

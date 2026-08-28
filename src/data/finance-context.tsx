@@ -15,6 +15,7 @@ type FinanceContextValue = {
   state: FinanceState;
   loading: boolean;
   error?: string;
+  migrationNotice?: string;
   commit: (change: (draft: FinanceState) => unknown | Promise<unknown>) => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -29,11 +30,13 @@ export function FinanceProvider({
   const [state, setState] = useState(emptyFinanceState);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const [migrationNotice, setMigrationNotice] = useState<string>();
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(undefined);
     try {
       setState(await repository.load());
+      setMigrationNotice(repository instanceof DexieFinanceRepository ? repository.consumeMigrationNotice() : undefined);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Não foi possível abrir seus dados locais.",
@@ -59,8 +62,8 @@ export function FinanceProvider({
     [repository],
   );
   const value = useMemo(
-    () => ({ state, loading, error, commit, refresh }),
-    [state, loading, error, commit, refresh],
+    () => ({ state, loading, error, migrationNotice, commit, refresh }),
+    [state, loading, error, migrationNotice, commit, refresh],
   );
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

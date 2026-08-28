@@ -31,7 +31,7 @@ function ProfileAvatar() {
 
 export function AppShell() {
   const path = useRouterState({ select: (state) => state.location.pathname });
-  const { state, loading, error } = useFinance();
+  const { state, loading, error, migrationNotice } = useFinance();
 
   useEffect(() => {
     const selected = state.theme ?? "light";
@@ -110,6 +110,7 @@ export function AppShell() {
       </nav>
 
       {error ? <div className="global-error" role="alert">{error}</div> : null}
+      {migrationNotice ? <div className="global-notice" role="status">{migrationNotice}</div> : null}
       {loading ? (
         <div className="loading" aria-live="polite">
           <span className="brand-mark"><span /></span>

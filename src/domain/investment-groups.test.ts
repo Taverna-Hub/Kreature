@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyFinanceState } from "./defaults";
-import { investmentDisplayGroups } from "./investment-groups";
+import { investmentDisplayGroups, investmentMovementAmount } from "./investment-groups";
 
 const importedRdb = (id: string, institutionId = "bank") => ({
   id,
@@ -46,6 +46,7 @@ describe("investmentDisplayGroups", () => {
       investments: [{ id: "rdb-a" }, { id: "rdb-b" }],
       history: [{ id: "entry-a" }],
     });
+    expect(investmentMovementAmount(groups[0].history[0])).toBe("100");
   });
 
   it("mantém investimentos manuais como posições separadas", () => {

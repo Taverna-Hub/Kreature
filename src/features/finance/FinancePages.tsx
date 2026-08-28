@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState, type MouseEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   FileUp,
@@ -27,7 +27,8 @@ import {
   type EntryInput,
 } from "@/domain/ledger";
 import { buildSummary, monthlyHistory } from "@/domain/queries";
-import { importedRdbPositionKey, investmentDisplayGroups, rdbPositionKey } from "@/domain/investment-groups";
+import { importedRdbPositionKey, investmentDisplayGroups, investmentMovementAmount, rdbPositionKey } from "@/domain/investment-groups";
+import { learnClassificationRule, normalizeClassificationText } from "@/domain/classification";
 import { editRecurrence, occurrencesFor, settleOccurrence } from "@/domain/recurrence";
 import type {
   Category,
@@ -473,7 +474,7 @@ function EntryForm({
         <select name="categoryId" defaultValue={entry?.categoryId ?? ""}>
           <option value="">Sem categoria</option>
           {state.categories
-            .filter((item) => !item.archivedAt)
+            .filter((item) => !item.archivedAt && item.flow === (kind === "income" ? "income" : "expense"))
             .map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -580,6 +581,7 @@ function CategoriesView() {
         const found = draft.categories.find((item) => item.id === category.id)!;
         found.archivedAt = now();
       } else draft.categories = draft.categories.filter((item) => item.id !== category.id);
+      draft.classificationRules = draft.classificationRules.filter((rule) => rule.categoryId !== category.id);
     });
   return (
     <section className="panel">
@@ -612,7 +614,7 @@ function CategoriesView() {
               </span>
               <div>
                 <strong>{item.name}</strong>
-                <small>{item.isDefault ? "Padrão" : "Personalizada"}</small>
+                <small>{item.flow === "income" ? "Receita" : "Despesa"} · {item.isDefault ? "Padrão" : "Personalizada"}</small>
               </div>
               <div className="row-actions">
                 <button
@@ -631,6 +633,10 @@ function CategoriesView() {
             </article>
           ))}
       </div>
+      <section className="rules-panel" aria-labelledby="learned-rules-title">
+        <div><span className="eyebrow">Automação local</span><h3 id="learned-rules-title">Regras aprendidas</h3><p>Usadas apenas neste navegador para reconhecer a mesma descrição novamente.</p></div>
+        {state.classificationRules.length ? <div className="rules-list">{state.classificationRules.map((rule) => <div className="rule-row" key={rule.id}><input aria-label={`Descrição da regra ${rule.match}`} defaultValue={rule.match} onBlur={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); const match = normalizeClassificationText(event.target.value); if (!found || !match || match === found.match) return; found.match = match; found.updatedAt = now(); })} /><select aria-label={`Categoria da regra ${rule.match}`} value={rule.categoryId} onChange={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); if (found) { found.categoryId = event.target.value; found.updatedAt = now(); } })}>{state.categories.filter((category) => !category.archivedAt && category.flow === rule.kind).map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select><button aria-label={`Remover regra ${rule.match}`} onClick={() => void commit((draft) => { draft.classificationRules = draft.classificationRules.filter((item) => item.id !== rule.id); })}><Trash2 /></button></div>)}</div> : <p className="muted">As regras aparecem quando você corrige uma categoria durante uma importação ou salva um lançamento manual.</p>}
+      </section>
       {open && (
         <Modal
           title={editing ? "Editar categoria" : "Nova categoria"}
@@ -644,11 +650,12 @@ function CategoriesView() {
               const file = data.get("image") as File;
               void commit((draft) => {
                 const timestamp = now();
-                const record: Category = {
+              const record: Category = {
                   id: editing?.id ?? uid("category"),
                   name: String(data.get("name")),
                   icon: "Circle",
-                  color: String(data.get("color")),
+                color: String(data.get("color")),
+                flow: String(data.get("flow")) as Category["flow"],
                   image: file?.size ? file : editing?.image,
                   isDefault: editing?.isDefault ?? false,
                   createdAt: editing?.createdAt ?? timestamp,
@@ -665,6 +672,9 @@ function CategoriesView() {
             </Field>
             <Field label="Cor">
               <input type="color" name="color" defaultValue={editing?.color ?? "#f97316"} />
+            </Field>
+            <Field label="Fluxo">
+              <select name="flow" defaultValue={editing?.flow ?? "expense"}><SelectOptions values={[["expense", "Despesa"], ["income", "Receita"]]} /></select>
             </Field>
             <Field className="full" label="Imagem opcional">
               <input type="file" name="image" accept="image/*" />
@@ -766,6 +776,7 @@ function ImportView() {
           fingerprint: item.fingerprint,
           notes: `${item.externalId ? `external:${item.externalId} ` : ""}Importado por ${item.parser}`.trim(),
         });
+        if (item.categoryId && (item.categoryId !== item.suggestedCategoryId || item.kind !== item.suggestedKind)) learnClassificationRule(draft, entry);
         if (item.createInvestment && item.kind === "investment") {
           const amount = new Decimal(item.amount).abs().toString();
           const positionKey = rdbPositionKey(institutionId, item.description);
@@ -921,7 +932,7 @@ function ImportView() {
                   >
                     <option value="">Sem categoria</option>
                     {state.categories
-                      .filter((value) => !value.archivedAt)
+                      .filter((value) => !value.archivedAt && value.flow === (new Decimal(item.amount).isNegative() ? "expense" : "income"))
                       .map((value) => (
                         <option value={value.id} key={value.id}>
                           {value.name}
@@ -1355,6 +1366,7 @@ export function InvestmentsPage() {
         {displayGroups.length ? (
           displayGroups.map((group) => {
             const item = group.investments[0];
+            const institution = state.institutions.find((candidate) => candidate.id === item.institutionId && !candidate.archivedAt);
             const isConsolidated = group.investments.length > 1;
             const investedAmount = group.investments.reduce((sum, investment) => sum.plus(investment.investedAmount), new Decimal(0));
             const currentValue = group.investments.reduce((sum, investment) => sum.plus(investment.currentValue), new Decimal(0));
@@ -1372,34 +1384,39 @@ export function InvestmentsPage() {
                       {isConsolidated ? `${group.investments.length} aplicações importadas` : investmentTypeLabel(item.type)} {item.ticker && `· ${item.ticker}`}
                     </p>
                   </div>
-                  {!isConsolidated && <div className="row-actions">
-                    <button
-                      onClick={() => {
-                        setEditing(item);
-                        setOpen(true);
-                      }}
-                    >
-                      <Pencil />
-                    </button>
-                    <button
-                      onClick={() =>
-                        void commit((draft) => {
-                          const used = draft.entries.some(
-                            (entry) => entry.investmentId === item.id,
-                          );
-                          if (used)
-                            draft.investments.find((value) => value.id === item.id)!.archivedAt =
-                              now();
-                          else
-                            draft.investments = draft.investments.filter(
-                              (value) => value.id !== item.id,
+                  <div className="investment-card-actions">
+                    {institution && <InstitutionLogo institution={institution} size={32} />}
+                    {!isConsolidated && <div className="row-actions">
+                      <button
+                        aria-label={`Editar ${item.name}`}
+                        onClick={() => {
+                          setEditing(item);
+                          setOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                      </button>
+                      <button
+                        aria-label={`Arquivar ${item.name}`}
+                        onClick={() =>
+                          void commit((draft) => {
+                            const used = draft.entries.some(
+                              (entry) => entry.investmentId === item.id,
                             );
-                        })
-                      }
-                    >
-                      <Trash2 />
-                    </button>
-                  </div>}
+                            if (used)
+                              draft.investments.find((value) => value.id === item.id)!.archivedAt =
+                                now();
+                            else
+                              draft.investments = draft.investments.filter(
+                                (value) => value.id !== item.id,
+                              );
+                          })
+                        }
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>}
+                  </div>
                 </header>
                 <div className="investment-values">
                   <div>
@@ -1427,10 +1444,14 @@ export function InvestmentsPage() {
                 {group.history.length > 0 && <details className="investment-history">
                   <summary><span>Histórico da posição</span><small>{group.history.length} movimentação(ões)</small></summary>
                   <div>
-                    {group.history.map((entry) => <article key={entry.id}>
-                      <span><small>{dateLabel(entry.date)}</small><strong>{cleanTransactionDescription(entry.description)}</strong></span>
-                      <b className={new Decimal(entry.brlAmount).isNegative() ? "negative" : "positive"}>{money(entry.brlAmount, entry.currency)}</b>
-                    </article>)}
+                    {group.history.map((entry) => {
+                      const amount = investmentMovementAmount(entry);
+                      const positive = new Decimal(amount).isPositive();
+                      return <article key={entry.id}>
+                        <span><small>{dateLabel(entry.date)}</small><strong>{cleanTransactionDescription(entry.description)}</strong></span>
+                        <b className={positive ? "positive" : "negative"}>{positive ? "+" : ""}{money(amount, entry.currency)}</b>
+                      </article>;
+                    })}
                   </div>
                 </details>}
                 <footer>
@@ -1625,6 +1646,8 @@ export function PlanningPage() {
     projected = item.kind === "income" ? projected.plus(item.amount) : projected.minus(item.amount);
     return { ...item, projected: projected.toString() };
   });
+  const plannedIncome = occurrences.filter((item) => item.kind === "income").reduce((sum, item) => sum.plus(item.amount), new Decimal(0));
+  const plannedExpenses = occurrences.filter((item) => item.kind === "expense").reduce((sum, item) => sum.plus(item.amount), new Decimal(0));
   return (
     <Page
       eyebrow="Próximos passos"
@@ -1643,6 +1666,11 @@ export function PlanningPage() {
         </Button>
       }
     >
+      <section className="metric-grid compact planning-metrics">
+        <article className="metric income"><span>Entradas previstas</span><strong>{money(plannedIncome.toString())}</strong></article>
+        <article className="metric expense"><span>Saídas previstas</span><strong>{money(plannedExpenses.toString())}</strong></article>
+        <article className="metric available"><span>Saldo ao fim do período</span><strong>{money(projection[projection.length - 1]?.projected ?? projected.toString())}</strong></article>
+      </section>
       <section className="panel">
         <div className="panel-heading">
           <div>
@@ -1773,7 +1801,19 @@ function PlanningDialog({
   onRemove?: () => Promise<void>;
 }) {
   const [editMode, setEditMode] = useState<"one" | "future" | "all">("all");
+  const [kind, setKind] = useState<"income" | "expense">(value?.kind ?? "expense");
   const showSchedule = !value || editMode !== "one";
+  const categories = state.categories.filter((item) => !item.archivedAt && item.flow === kind);
+  const applyIncomePreset = (event: MouseEvent<HTMLButtonElement>, description: string, categoryName: string) => {
+    const form = event.currentTarget.form;
+    const category = categories.find((item) => item.name === categoryName);
+    const descriptionInput = form?.elements.namedItem("description") as HTMLInputElement | null;
+    const frequencyInput = form?.elements.namedItem("frequency") as HTMLSelectElement | null;
+    const categoryInput = form?.elements.namedItem("categoryId") as HTMLSelectElement | null;
+    if (descriptionInput) descriptionInput.value = description;
+    if (frequencyInput) frequencyInput.value = "monthly";
+    if (categoryInput && category) categoryInput.value = category.id;
+  };
   return (
     <Modal title={value ? "Editar planejamento" : "Novo planejamento"} onClose={onClose}>
       <form
@@ -1829,7 +1869,7 @@ function PlanningDialog({
           </>
         )}
         <Field label="Tipo">
-          <select name="kind" defaultValue={value?.kind ?? "expense"}>
+          <select name="kind" value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}>
             <SelectOptions
               values={[
                 ["income", "Receita"],
@@ -1838,6 +1878,7 @@ function PlanningDialog({
             />
           </select>
         </Field>
+        {kind === "income" && <div className="income-presets full" aria-label="Atalhos de receita"><span>Preencher como</span><div><button type="button" onClick={(event) => applyIncomePreset(event, "Salário", "Salário")}>Salário mensal</button><button type="button" onClick={(event) => applyIncomePreset(event, "Aluguel recebido", "Aluguel recebido")}>Aluguel mensal</button><button type="button" onClick={(event) => applyIncomePreset(event, "Freela", "Freela e serviços")}>Freela</button></div></div>}
         {(!value || editMode === "all") && (
           <Field label="Primeira data">
             <FormDatePicker name="startDate" defaultValue={value?.startDate ?? today()} label="Primeira data" required />
@@ -1881,8 +1922,7 @@ function PlanningDialog({
         <Field label="Categoria">
           <select name="categoryId" defaultValue={value?.categoryId ?? ""}>
             <option value="">Sem categoria</option>
-            {state.categories
-              .filter((item) => !item.archivedAt)
+            {categories
               .map((item) => (
                 <option value={item.id} key={item.id}>
                   {item.name}

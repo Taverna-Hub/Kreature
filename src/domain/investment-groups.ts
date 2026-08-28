@@ -1,3 +1,4 @@
+import Decimal from "decimal.js";
 import type { FinanceState, Investment, LedgerEntry } from "./types";
 
 const normalize = (value: string) =>
@@ -15,6 +16,17 @@ export function rdbPositionKey(institutionId: string | undefined, name: string) 
 export function importedRdbPositionKey(investment: Investment) {
   if (investment.quoteMessage !== "Criado pela importação") return undefined;
   return rdbPositionKey(investment.institutionId, investment.name);
+}
+
+/**
+ * A bank statement describes cash moving out of or into the account. The investment
+ * history describes the inverse: an application grows the position and a redemption
+ * shrinks it.
+ */
+export function investmentMovementAmount(entry: LedgerEntry) {
+  return entry.kind === "investment"
+    ? new Decimal(entry.brlAmount).negated().toString()
+    : entry.brlAmount;
 }
 
 export interface InvestmentDisplayGroup {
