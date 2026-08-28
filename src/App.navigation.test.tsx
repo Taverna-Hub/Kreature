@@ -10,7 +10,7 @@ vi.mock("@tanstack/react-router", () => ({
   useRouterState: () => "/resumo",
 }));
 
-import { AppShell } from "./App";
+import { AppShell } from "@/app/AppShell";
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,

@@ -10,7 +10,7 @@ vi.mock("@tanstack/react-router", () => ({
   useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => string }) => select({ location: { pathname: "/perfil" } }),
 }));
 
-import { AppShell } from "./App";
+import { AppShell } from "@/app/AppShell";
 
 Object.defineProperty(window, "matchMedia", { writable: true, value: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }) });
 

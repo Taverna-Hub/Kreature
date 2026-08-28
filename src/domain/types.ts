@@ -1,4 +1,4 @@
-import type { ProfileConfig } from "@/profile/types";
+import type { ProfileConfig } from "@/features/profile/types";
 
 export type CurrencyCode = string;
 export type DecimalValue = string;
@@ -140,70 +140,6 @@ export interface CardPurchase {
   updatedAt: string;
 }
 
-export type AssetKind = "reserve" | "traded" | "crypto" | "property" | "vehicle" | "other";
-
-export interface AssetBase {
-  id: string;
-  kind: AssetKind;
-  name: string;
-  currentValue: DecimalValue;
-  acquisitionValue: DecimalValue;
-  currency: CurrencyCode;
-  institutionId?: string;
-  notes?: string;
-  archivedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ReserveAsset extends AssetBase {
-  kind: "reserve";
-}
-
-export interface TradedAsset extends AssetBase {
-  kind: "traded" | "crypto";
-  investmentType: InvestmentType;
-  ticker?: string;
-  quantity: DecimalValue;
-  averagePrice: DecimalValue;
-  currentPrice: DecimalValue;
-  dividends: DecimalValue;
-  contractedYield?: string;
-  maturityDate?: string;
-  quoteStatus: "manual" | "ok" | "error";
-  quoteMessage?: string;
-  quoteAsOf?: string;
-}
-
-export interface PropertyAsset extends AssetBase {
-  kind: "property";
-  location?: string;
-  acquisitionDate?: string;
-}
-
-export interface VehicleAsset extends AssetBase {
-  kind: "vehicle";
-  make?: string;
-  model?: string;
-  year?: number;
-}
-
-export interface OtherAsset extends AssetBase {
-  kind: "other";
-}
-
-export type Asset = ReserveAsset | TradedAsset | PropertyAsset | VehicleAsset | OtherAsset;
-
-export interface DerivedInstitutionAsset {
-  id: string;
-  kind: "institution-account";
-  institutionId: string;
-  name: string;
-  currentValue: DecimalValue;
-  acquisitionValue: DecimalValue;
-  currency: CurrencyCode;
-}
-
 export interface Investment {
   id: string;
   institutionId?: string;
@@ -283,8 +219,6 @@ export interface FinanceState {
   institutions: Institution[];
   entries: LedgerEntry[];
   investments: Investment[];
-  /** Financial assets replace the old investments collection; investments stays for legacy snapshots. */
-  assets: Asset[];
   creditCards: CreditCard[];
   cardPurchases: CardPurchase[];
   plannedEntries: PlannedEntry[];

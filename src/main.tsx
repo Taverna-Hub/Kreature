@@ -3,13 +3,15 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import { FinanceProvider } from "@/data/finance-context";
 import { router } from "@/router";
-import "@/tailwind.css";
-import "@/styles.css";
+import { FeedbackProvider } from "@/shared/ui/FeedbackProvider";
+import "@/app/styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <FinanceProvider>
-      <RouterProvider router={router} />
+      <FeedbackProvider>
+        <RouterProvider router={router} />
+      </FeedbackProvider>
     </FinanceProvider>
   </StrictMode>,
 );

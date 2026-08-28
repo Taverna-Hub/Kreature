@@ -1,6 +1,6 @@
 import { Mascot } from "./Mascot";
-import type { ProfileConfig } from "@/profile/types";
-import { getColor } from "@/profile/options";
+import type { ProfileConfig } from "@/features/profile/types";
+import { getColor } from "@/features/profile/options";
 
 const frameStyles: Record<ProfileConfig["frame"], { label: string | null }> = {
   none: { label: null },

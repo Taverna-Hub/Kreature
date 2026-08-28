@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 
 type DatePickerProps = {
@@ -65,9 +65,14 @@ export function MonthPicker({ value, onChange, label = "Selecionar mês", disabl
   const [year, setYear] = useState(initial.getFullYear());
   const selected = /^\d{4}-\d{2}$/.test(value) ? new Date(`${value}-01T12:00:00`) : undefined;
   const months = Array.from({ length: 12 }, (_, month) => new Date(year, month, 1));
+
+  useEffect(() => {
+    if (/^\d{4}-\d{2}$/.test(value)) setYear(Number(value.slice(0, 4)));
+  }, [value]);
+
   return (
     <div className="date-picker month-picker">
-      <button type="button" className="date-trigger" aria-label={label} aria-expanded={open} onClick={() => setOpen((current) => !current)} disabled={disabled}>
+      <button type="button" className="date-trigger" aria-label={label} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((current) => !current)} disabled={disabled}>
         <CalendarDays size={16} aria-hidden="true" />
         <span>{selected ? new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(selected) : "Selecionar mês"}</span>
       </button>
@@ -78,10 +83,11 @@ export function MonthPicker({ value, onChange, label = "Selecionar mês", disabl
             <strong>{year}</strong>
             <button type="button" aria-label="Próximo ano" onClick={() => setYear((current) => current + 1)}><ChevronRight size={16} /></button>
           </div>
-          <div className="month-grid">
+          <div className="month-grid" role="group" aria-label={`Meses de ${year}`}>
             {months.map((month) => {
               const monthValue = `${year}-${String(month.getMonth() + 1).padStart(2, "0")}`;
-              return <button type="button" key={monthValue} className={monthValue === value ? "selected" : ""} onClick={() => { onChange(monthValue); setOpen(false); }}>{new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(month).replace(".", "")}</button>;
+              const isSelected = monthValue === value;
+              return <button type="button" key={monthValue} className={isSelected ? "selected" : ""} aria-pressed={isSelected} onClick={() => { onChange(monthValue); setOpen(false); }}>{new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(month).replace(".", "")}</button>;
             })}
           </div>
         </div>

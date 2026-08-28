@@ -1,7 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import { emptyFinanceState } from "@/domain/defaults";
 import type { FinanceState } from "@/domain/types";
-import { normalizeFinanceState } from "@/domain/patrimony";
 
 export interface FinanceRepository {
   load(): Promise<FinanceState>;
@@ -16,6 +15,9 @@ class FinanceDatabase extends Dexie {
     super(name);
     this.version(1).stores({ states: "&id" });
     this.version(2).stores({ states: "&id" });
+    this.version(3)
+      .stores({ states: "&id" })
+      .upgrade((transaction) => transaction.table("states").clear());
   }
 }
 
@@ -29,21 +31,19 @@ export class DexieFinanceRepository implements FinanceRepository {
   async load() {
     const record = await this.db.states.get("current");
     if (record) {
-      const value = normalizeFinanceState(record.value);
-      if (record.version !== 2) await this.db.states.put({ id: "current", value, version: 2 });
-      return clone(value);
+      return clone(record.value);
     }
     const value = emptyFinanceState();
-    await this.db.states.put({ id: "current", value, version: 2 });
+    await this.db.states.put({ id: "current", value, version: 3 });
     return clone(value);
   }
   async transact(change: (draft: FinanceState) => unknown | Promise<unknown>) {
     return this.db.transaction("rw", this.db.states, async () => {
       const record = await this.db.states.get("current");
-      const current = record ? normalizeFinanceState(record.value) : emptyFinanceState();
+      const current = record?.value ?? emptyFinanceState();
       const draft = clone(current);
       await change(draft);
-      await this.db.states.put({ id: "current", value: draft, version: 2 });
+      await this.db.states.put({ id: "current", value: draft, version: 3 });
       return clone(draft);
     });
   }
@@ -52,7 +52,7 @@ export class DexieFinanceRepository implements FinanceRepository {
 export class MemoryFinanceRepository implements FinanceRepository {
   private state: FinanceState;
   constructor(initial = emptyFinanceState()) {
-    this.state = normalizeFinanceState(clone(initial));
+    this.state = clone(initial);
   }
   async load() {
     return clone(this.state);

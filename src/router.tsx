@@ -1,13 +1,20 @@
+import { lazy, Suspense, type ComponentType } from "react";
 import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
-import {
-  AppShell,
-  InstitutionsPage,
-  InvestmentsPage,
-  LaunchesPage,
-  PlanningPage,
-  ProfilePage,
-  SummaryPage,
-} from "@/App";
+import { AppShell } from "@/app/AppShell";
+
+function lazyPage(load: () => Promise<{ default: ComponentType }>) {
+  const LazyPage = lazy(load);
+  return function RoutePage() {
+    return <Suspense fallback={<div className="page-route-loading" aria-live="polite">Carregando página…</div>}><LazyPage /></Suspense>;
+  };
+}
+
+const SummaryPage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.SummaryPage })));
+const LaunchesPage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.LaunchesPage })));
+const InstitutionsPage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.InstitutionsPage })));
+const InvestmentsPage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.InvestmentsPage })));
+const PlanningPage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.PlanningPage })));
+const ProfilePage = lazyPage(() => import("@/features/finance/FinancePages").then((module) => ({ default: module.ProfilePage })));
 
 const root = createRootRoute({ component: AppShell });
 const index = createRoute({

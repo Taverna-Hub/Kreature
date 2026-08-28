@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import type { ProfileConfig } from "@/profile/types";
-import { getColor } from "@/profile/options";
+import type { ProfileConfig } from "@/features/profile/types";
+import { getColor } from "@/features/profile/options";
 
 // All layers render inside a 200x200 viewBox.
 

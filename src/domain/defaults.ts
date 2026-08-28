@@ -1,5 +1,5 @@
 import type { Category, FinanceState } from "./types";
-import { DEFAULT_PROFILE } from "@/profile/types";
+import { DEFAULT_PROFILE } from "@/features/profile/types";
 
 export const now = () => new Date().toISOString();
 export const uid = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
@@ -34,7 +34,6 @@ export function emptyFinanceState(): FinanceState {
     institutions: [],
     entries: [],
     investments: [],
-    assets: [],
     creditCards: [],
     cardPurchases: [],
     plannedEntries: [],

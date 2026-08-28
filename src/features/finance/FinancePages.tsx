@@ -1,24 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { lazy, Suspense, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
-  AreaChart,
-  Area,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
-  CalendarDays,
-  CircleDollarSign,
   FileUp,
-  Menu,
   Pencil,
-  PiggyBank,
   Plus,
   RefreshCw,
   Search,
@@ -28,9 +12,7 @@ import {
   Sun,
   Trash2,
   TrendingUp,
-  UserRound,
   WalletCards,
-  X,
 } from "lucide-react";
 import Decimal from "decimal.js";
 import { useFinance } from "@/data/finance-context";
@@ -65,264 +47,37 @@ import type {
 import { analyzeFile, cleanTransactionDescription } from "@/lib/importers";
 import { fetchAssetQuote, fetchExchangeRate } from "@/lib/market";
 import { dateLabel, decimalInput, money, monthLabel } from "@/lib/format";
-import { CharacterCustomizer } from "@/profile/CharacterCustomizer";
-import { Mascot } from "@/profile/Mascot";
-import { ProfileCard } from "@/profile/ProfileCard";
 import { catalogInstitution, searchInstitutionCatalog } from "@/domain/institution-catalog";
 import { cardInvoices, payCardInvoice, recordCardPurchase } from "@/domain/cards";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
+import { Button } from "@/shared/ui/Button";
+import { Dialog as Modal } from "@/shared/ui/Dialog";
+import { EmptyState as Empty } from "@/shared/ui/EmptyState";
+import { FormField as Field, SelectOptions } from "@/shared/ui/FormField";
+import { Page } from "@/shared/ui/Page";
+import { Tabs } from "@/shared/ui/Tabs";
+import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
+import { useFeedback } from "@/shared/ui/FeedbackProvider";
+
+const DashboardCharts = lazy(() => import("@/features/summary/DashboardCharts").then((module) => ({ default: module.DashboardCharts })));
+const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCustomizer").then((module) => ({ default: module.CharacterCustomizer })));
+const ProfileCard = lazy(() => import("@/features/profile/ProfileCard").then((module) => ({ default: module.ProfileCard })));
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export function AppShell() {
-  const path = useRouterState({ select: (state) => state.location.pathname });
-  const { state, loading, error } = useFinance();
-  useEffect(() => {
-    const selected = state.theme ?? "light";
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      document.documentElement.dataset.theme =
-        selected === "system" ? (media.matches ? "dark" : "light") : selected;
-      document.documentElement.style.colorScheme = document.documentElement.dataset.theme;
-      document.querySelector('meta[name="theme-color"]')?.setAttribute(
-        "content",
-        document.documentElement.dataset.theme === "dark" ? "#18181b" : "#fffaf5",
-      );
-    };
-    apply();
-    if (selected === "system") media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, [state.theme]);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const items = [
-    ["/resumo", "Resumo", CircleDollarSign],
-    ["/lancamentos", "Lançamentos", WalletCards],
-    ["/patrimonio/instituicoes", "Patrimônio", PiggyBank],
-    ["/planejamento", "Planejamento", CalendarDays],
-    ["/perfil", "Perfil", UserRound],
-  ] as const;
-  const isCurrentRoute = (to: string) =>
-    to === "/patrimonio/instituicoes" ? path.startsWith("/patrimonio") : path === to || path.startsWith(`${to}/`);
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <Link to="/resumo" className="brand">
-          <span className="brand-avatar" aria-label="Logo Kreature">
-            <img src="/favicon.svg" alt="" />
-          </span>
-          <span>
-            <strong>Kreature</strong>
-            <small>Seu dinheiro, do seu jeito</small>
-          </span>
-        </Link>
-        <button
-          className="icon-button menu-button"
-          aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((value) => !value)}
-        >
-          <Menu />
-        </button>
-        <nav className={menuOpen ? "open" : ""} aria-label="Navegação principal">
-          {items.map(([to, label, Icon]) => {
-            const active = isCurrentRoute(to);
-            return <Link
-              key={to}
-              to={to}
-              onClick={() => setMenuOpen(false)}
-              className={active ? "active" : ""}
-              aria-current={active ? "page" : undefined}
-            >
-              {to === "/perfil" ? <span className="nav-profile-avatar"><Mascot config={state.profile} size={28} animated={false} /></span> : <Icon size={18} />}
-              {label}
-            </Link>;
-          })}
-        </nav>
-      </header>
-      <nav className="mobile-nav" aria-label="Navegação móvel">
-        <Link to="/resumo" className={isCurrentRoute("/resumo") ? "active" : ""} aria-current={isCurrentRoute("/resumo") ? "page" : undefined} aria-label="Resumo">
-          <CircleDollarSign />
-          <span>Resumo</span>
-        </Link>
-        <Link to="/patrimonio/instituicoes" className={isCurrentRoute("/patrimonio/instituicoes") ? "active" : ""} aria-current={isCurrentRoute("/patrimonio/instituicoes") ? "page" : undefined} aria-label="Patrimônio">
-          <PiggyBank />
-          <span>Patrimônio</span>
-        </Link>
-        <Link to="/lancamentos" className="mobile-add" aria-label="Novo lançamento">
-          <Plus />
-          <span>Novo</span>
-        </Link>
-        <Link to="/planejamento" className={isCurrentRoute("/planejamento") ? "active" : ""} aria-current={isCurrentRoute("/planejamento") ? "page" : undefined} aria-label="Planejamento">
-          <CalendarDays />
-          <span>Plano</span>
-        </Link>
-        <Link to="/perfil" className={isCurrentRoute("/perfil") ? "active" : ""} aria-current={isCurrentRoute("/perfil") ? "page" : undefined} aria-label="Perfil">
-          <span className="nav-profile-avatar"><Mascot config={state.profile} size={30} animated={false} /></span>
-          <span>Perfil</span>
-        </Link>
-      </nav>
-      {error && (
-        <div className="global-error" role="alert">
-          {error}
-        </div>
-      )}
-      {loading ? (
-        <div className="loading">
-          <span className="brand-mark">
-            <span />
-          </span>
-          <p>Organizando suas finanças...</p>
-        </div>
-      ) : (
-        <Outlet />
-      )}
-    </div>
-  );
+function CategoryImage({ image, name }: { image: Blob; name: string }) {
+  const source = useObjectUrl(image);
+  return source ? <img src={source} alt={`Imagem de ${name}`} /> : null;
 }
 
-function Page({
-  eyebrow,
-  title,
-  description,
-  actions,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <main className="page">
-      <header className="page-header">
-        <div>
-          <span className="eyebrow">{eyebrow}</span>
-          <h1>{title}</h1>
-          <p>{description}</p>
-        </div>
-        {actions && <div className="page-actions">{actions}</div>}
-      </header>
-      {children}
-    </main>
-  );
-}
-function Button({
-  children,
-  variant = "primary",
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "danger" | "ghost";
-}) {
-  return (
-    <button {...props} className={`button ${variant} ${props.className ?? ""}`}>
-      {children}
-    </button>
-  );
-}
-function Empty({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="empty">
-      <Sparkles />
-      <h3>{title}</h3>
-      <p>{description}</p>
-    </div>
-  );
-}
-function Modal({
-  title,
-  children,
-  onClose,
-}: {
-  title: string;
-  children: ReactNode;
-  onClose: () => void;
-}) {
-  const dialogRef = useRef<HTMLElement>(null);
-  const opener = useRef(document.activeElement as HTMLElement | null);
-  useEffect(() => {
-    const previousFocus = opener.current;
-    const previousOverflow = document.body.style.overflow;
-    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", closeOnEscape);
-    dialogRef.current?.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-      previousFocus?.focus?.();
-    };
-  }, [onClose]);
-  return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
-    >
-      <section ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <header>
-          <h2 id="modal-title">{title}</h2>
-          <button className="icon-button" aria-label="Fechar" onClick={onClose}>
-            <X />
-          </button>
-        </header>
-        {children}
-      </section>
-    </div>
-  );
-}
-function Tabs({
-  value,
-  onChange,
-  items,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  items: Array<[string, string]>;
-}) {
-  return (
-    <div className="section-tabs" role="tablist">
-      {items.map(([id, label]) => (
-        <button
-          role="tab"
-          aria-selected={value === id}
-          className={value === id ? "active" : ""}
-          onClick={() => onChange(id)}
-          key={id}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-function Field({
-  label,
-  children,
-  className = "",
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <label className={`field ${className}`}>
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-function SelectOptions({ values }: { values: Array<[string, string]> }) {
-  return (
-    <>
-      {values.map(([value, label]) => (
-        <option key={value} value={value}>
-          {label}
-        </option>
-      ))}
-    </>
-  );
+function categoryIconForeground(color: string) {
+  const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color);
+  if (!match) return "#fff";
+  const channels = match.slice(1).map((value) => Number.parseInt(value, 16) / 255);
+  const [red, green, blue] = channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  return luminance > 0.42 ? "#18181b" : "#fff";
 }
 
 export function SummaryPage() {
@@ -354,26 +109,20 @@ export function SummaryPage() {
       }
     >
       <section className="filter-card">
-        <Field label="Período">
-          <select
+        <div className="field period-filter">
+          <span>Período</span>
+          <Tabs
+            label="Período do resumo"
             value={filter.mode}
-            onChange={(event) =>
-              setFilter((current) => ({
-                ...current,
-                mode: event.target.value as PeriodFilter["mode"],
-              }))
-            }
-          >
-            <SelectOptions
-              values={[
-                ["month", "Mês"],
-                ["year", "Ano"],
-                ["all", "Todo o período"],
-                ["custom", "Intervalo personalizado"],
-              ]}
-            />
-          </select>
-        </Field>
+            onChange={(mode) => setFilter((current) => ({ ...current, mode: mode as PeriodFilter["mode"] }))}
+            items={[
+              ["month", "Mês"],
+              ["year", "Ano"],
+              ["all", "Todo o período"],
+              ["custom", "Intervalo personalizado"],
+            ]}
+          />
+        </div>
         {filter.mode === "month" && (
           <Field label="Mês">
             <MonthPicker
@@ -421,86 +170,9 @@ export function SummaryPage() {
           </article>
         ))}
       </section>
-      <section className="dashboard-grid">
-        <article className="panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">Distribuição</span>
-              <h2>Gastos por categoria</h2>
-            </div>
-          </div>
-          {summary.categoryTotals.length ? (
-            <div className="chart-with-legend">
-              <div className="donut">
-                <ResponsiveContainer width="100%" height={260}>
-                  <PieChart>
-                    <Pie
-                      data={summary.categoryTotals}
-                      dataKey="amount"
-                      nameKey="name"
-                      innerRadius={65}
-                      outerRadius={100}
-                      paddingAngle={3}
-                    >
-                      {summary.categoryTotals.map((item) => (
-                        <Cell key={item.name} fill={item.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => money(String(value))} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <ul className="legend">
-                {summary.categoryTotals.map((item) => (
-                  <li key={item.name}>
-                    <i style={{ background: item.color }} />
-                    <span>{item.name}</span>
-                    <strong>{money(item.amount)}</strong>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <Empty
-              title="Sem gastos no período"
-              description="Registre uma despesa para visualizar a distribuição."
-            />
-          )}
-        </article>
-        <article className="panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">Evolução</span>
-              <h2>Saldo mensal</h2>
-            </div>
-          </div>
-          {history.length ? (
-            <ResponsiveContainer width="100%" height={310}>
-              <AreaChart data={history}>
-                <defs>
-                  <linearGradient id="balanceFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0" stopColor="#0d9488" stopOpacity={0.35} />
-                    <stop offset="1" stopColor="#0d9488" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" tickFormatter={(v) => v.slice(5)} />
-                <YAxis tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                <Tooltip formatter={(v) => money(String(v))} labelFormatter={monthLabel} />
-                <Area
-                  dataKey="balance"
-                  type="monotone"
-                  stroke="#0d9488"
-                  strokeWidth={3}
-                  fill="url(#balanceFill)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <Empty title="Histórico vazio" description="Os saldos mensais aparecerão aqui." />
-          )}
-        </article>
-      </section>
+      <Suspense fallback={<div className="panel page-route-loading">Carregando gráficos…</div>}>
+        <DashboardCharts categoryTotals={summary.categoryTotals} history={history} />
+      </Suspense>
     </Page>
   );
 }
@@ -510,6 +182,7 @@ export function LaunchesPage() {
   const [tab, setTab] = useState("entries");
   const [editing, setEditing] = useState<LedgerEntry | null>();
   const [dialog, setDialog] = useState(false);
+  const [pendingDeletion, setPendingDeletion] = useState<LedgerEntry>();
   const [search, setSearch] = useState("");
   const entries = state.entries
     .filter((entry) => normalizeText(entry.description).includes(normalizeText(search)))
@@ -632,10 +305,7 @@ export function LaunchesPage() {
                         )}
                         <button
                           aria-label="Excluir"
-                          onClick={() =>
-                            window.confirm("Excluir este lançamento?") &&
-                            void commit((draft) => removeEntry(draft, entry.id))
-                          }
+                          onClick={() => setPendingDeletion(entry)}
                         >
                           <Trash2 />
                         </button>
@@ -664,6 +334,15 @@ export function LaunchesPage() {
           <EntryForm state={state} entry={editing ?? undefined} onSave={save} />
         </Modal>
       )}
+      {pendingDeletion ? (
+        <Modal title="Excluir lançamento" onClose={() => setPendingDeletion(undefined)}>
+          <p>Excluir “{pendingDeletion.description}”? Esta ação não pode ser desfeita.</p>
+          <div className="form-actions">
+            <Button type="button" variant="secondary" onClick={() => setPendingDeletion(undefined)}>Cancelar</Button>
+            <Button type="button" variant="danger" onClick={() => { void commit((draft) => removeEntry(draft, pendingDeletion.id)); setPendingDeletion(undefined); }}>Excluir lançamento</Button>
+          </div>
+        </Modal>
+      ) : null}
     </Page>
   );
 }
@@ -914,9 +593,9 @@ function CategoriesView() {
           .filter((item) => !item.archivedAt)
           .map((item) => (
             <article className="category-card" key={item.id}>
-              <span className="category-icon" style={{ background: item.color }}>
+              <span className="category-icon" style={{ background: item.color, color: categoryIconForeground(item.color) }}>
                 {item.image ? (
-                  <img src={URL.createObjectURL(item.image)} alt="" />
+                  <CategoryImage image={item.image} name={item.name} />
                 ) : (
                   item.name.slice(0, 1)
                 )}
@@ -927,6 +606,7 @@ function CategoriesView() {
               </div>
               <div className="row-actions">
                 <button
+                  aria-label={`Editar categoria ${item.name}`}
                   onClick={() => {
                     setEditing(item);
                     setOpen(true);
@@ -934,7 +614,7 @@ function CategoriesView() {
                 >
                   <Pencil />
                 </button>
-                <button onClick={() => archive(item)}>
+                <button aria-label={`Arquivar categoria ${item.name}`} onClick={() => archive(item)}>
                   <Trash2 />
                 </button>
               </div>
@@ -1296,8 +976,10 @@ function ImportView() {
 
 export function InstitutionsPage() {
   const { state, commit } = useFinance();
+  const { notify } = useFeedback();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Institution>();
+  const [reconciling, setReconciling] = useState<Institution>();
   const [busy, setBusy] = useState<string>();
   const active = state.institutions.filter((item) => !item.archivedAt);
   const archive = (item: Institution) =>
@@ -1321,7 +1003,7 @@ export function InstitutionsPage() {
         found.updatedAt = now();
       });
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Falha na cotação.");
+      notify(error instanceof Error ? error.message : "Não foi possível atualizar a cotação.", "error");
     } finally {
       setBusy(undefined);
     }
@@ -1415,19 +1097,7 @@ export function InstitutionsPage() {
                   )}
                   <Button
                     variant="ghost"
-                    onClick={() => {
-                      const target = prompt("Qual é o saldo correto?", balance);
-                      if (target !== null)
-                        void commit((draft) =>
-                          reconcileInstitution(
-                            draft,
-                            item.id,
-                            decimalInput(target),
-                            today(),
-                            "Reconciliação pela instituição",
-                          ),
-                        );
-                    }}
+                    onClick={() => setReconciling(item)}
                   >
                     Corrigir saldo
                   </Button>
@@ -1456,6 +1126,19 @@ export function InstitutionsPage() {
           }}
         />
       )}
+      {reconciling ? (
+        <Modal title={`Corrigir saldo de ${reconciling.name}`} onClose={() => setReconciling(undefined)}>
+          <form className="form-grid" onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            void commit((draft) => reconcileInstitution(draft, reconciling.id, decimalInput(data.get("balance")), today(), "Reconciliação pela instituição"));
+            setReconciling(undefined);
+          }}>
+            <Field className="full" label="Saldo correto"><input required name="balance" inputMode="decimal" defaultValue={institutionBalance(state, reconciling.id)} /></Field>
+            <div className="form-actions full"><Button type="button" variant="secondary" onClick={() => setReconciling(undefined)}>Cancelar</Button><Button type="submit">Salvar saldo</Button></div>
+          </form>
+        </Modal>
+      ) : null}
     </Page>
   );
 }
@@ -2199,7 +1882,8 @@ export function ProfilePage() {
       title="Perfil"
       description="Seu personagem e sua identidade, integrados ao mesmo produto."
     >
-      <section className="profile-area">
+      <Suspense fallback={<div className="panel page-route-loading">Carregando perfil…</div>}>
+        <section className="profile-area">
         {!editing && <article className="panel profile-copy">
           <span className="eyebrow">Kreature atual</span>
           <h2>Um perfil com a sua cara</h2>
@@ -2208,7 +1892,8 @@ export function ProfilePage() {
           <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => void commit((draft) => { draft.theme = mode; })} />
         </article>}
         {editing ? <CharacterCustomizer value={state.profile} onCancel={() => setEditing(false)} onSave={async (profile) => { await commit((draft) => { draft.profile = profile; }); setEditing(false); }} /> : <div className="profile-card-wrap"><ProfileCard config={state.profile} /></div>}
-      </section>
+        </section>
+      </Suspense>
     </Page>
   );
 }

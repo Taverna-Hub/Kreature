@@ -2,6 +2,8 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { Mascot } from "./Mascot";
 import { ProfileCard } from "./ProfileCard";
 import type { Accessory, ProfileConfig } from "./types";
+import { Button } from "@/shared/ui/Button";
+import { Dialog } from "@/shared/ui/Dialog";
 import {
   ACCESSORY_OPTIONS, BACKGROUND_OPTIONS, BODY_OPTIONS, CATEGORIES, COLOR_OPTIONS,
   EXPRESSION_OPTIONS, FRAME_OPTIONS, type CategoryId,
@@ -15,6 +17,7 @@ export function CharacterCustomizer({ value, onSave, onCancel }: {
   const [draft, setDraft] = useState(value);
   const [active, setActive] = useState<CategoryId>("body");
   const [saving, setSaving] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const tabId = useId();
   const dirty = JSON.stringify(draft) !== JSON.stringify(value);
   useEffect(() => setDraft(value), [value]);
@@ -36,15 +39,18 @@ export function CharacterCustomizer({ value, onSave, onCancel }: {
     try { await onSave(draft); } finally { setSaving(false); }
   };
   const cancel = () => {
-    if (!dirty || window.confirm("Descartar as alterações do personagem?")) {
+    if (!dirty) {
       setDraft(value);
       onCancel();
+      return;
     }
+    setDiscarding(true);
   };
   return (
-    <section className="customizer" aria-label="Editor do personagem">
-      <aside className="preview"><ProfileCard config={draft} size={280} /></aside>
-      <section className="customizer-controls">
+    <>
+      <section className="customizer" aria-label="Editor do personagem">
+        <aside className="preview"><ProfileCard config={draft} size={280} /></aside>
+        <section className="customizer-controls">
         <div className="tabs" role="tablist" aria-label="Partes do personagem">
           {CATEGORIES.map((item) => (
             <button type="button" role="tab" id={`${tabId}-${item.id}-tab`} aria-controls={`${tabId}-${item.id}-panel`}
@@ -55,12 +61,14 @@ export function CharacterCustomizer({ value, onSave, onCancel }: {
         <div id={`${tabId}-${active}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${active}-tab`}>
           <OptionPanel active={active} config={draft} update={update} toggleAccessory={toggleAccessory} />
         </div>
-        <div className="form-actions">
-          <button className="button secondary" type="button" disabled={saving} onClick={cancel}>Cancelar</button>
-          <button className="button" type="button" disabled={!dirty || saving} onClick={() => void save()}>{saving ? "Salvando…" : "Salvar alterações"}</button>
-        </div>
+          <div className="form-actions">
+            <Button variant="secondary" type="button" disabled={saving} onClick={cancel}>Cancelar</Button>
+            <Button type="button" disabled={!dirty || saving} onClick={() => void save()}>{saving ? "Salvando…" : "Salvar alterações"}</Button>
+          </div>
+        </section>
       </section>
-    </section>
+      {discarding ? <Dialog title="Descartar alterações" onClose={() => setDiscarding(false)}><p>Descartar as alterações não salvas do personagem?</p><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setDiscarding(false)}>Continuar editando</Button><Button type="button" variant="danger" onClick={() => { setDraft(value); setDiscarding(false); onCancel(); }}>Descartar alterações</Button></div></Dialog> : null}
+    </>
   );
 }
 
@@ -80,7 +88,11 @@ function OptionPanel({ active, config, update, toggleAccessory }: {
   update: <K extends keyof ProfileConfig>(key: K, value: ProfileConfig[K]) => void;
   toggleAccessory: (value: Accessory) => void;
 }) {
-  const sample = (patch: Partial<ProfileConfig>) => <div className="mascot-sample"><Mascot config={{ ...config, accessories: [], frame: "none", background: "plain", nickname: "", title: "", bio: "", ...patch }} size={56} animated={false} /></div>;
+  const sample = (patch: Partial<ProfileConfig>) => {
+    const sampleConfig: ProfileConfig = { ...config, accessories: [], frame: "none", background: "plain", nickname: "", title: "", bio: "", ...patch };
+    const frameClass = active === "frame" ? `frame-sample profile-frame-${sampleConfig.frame}` : "";
+    return <div className={`mascot-sample ${frameClass}`}><Mascot config={sampleConfig} size={56} animated={false} /></div>;
+  };
   if (active === "identity") return (
     <div className="profile-fields">
       <ProfileField label="Apelido"><input maxLength={24} value={config.nickname} onChange={(event) => update("nickname", event.target.value)} /></ProfileField>

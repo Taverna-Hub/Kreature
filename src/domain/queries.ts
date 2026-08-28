@@ -39,11 +39,7 @@ export function buildSummary(
         sum.plus(new Decimal(institutionBalance(state, item.id)).mul(item.exchangeRate)),
       new Decimal(0),
     );
-  const portfolio = [
-    ...state.assets,
-    ...state.investments.filter((investment) => !state.assets.some((asset) => asset.id === investment.id)),
-  ];
-  const invested = portfolio
+  const invested = state.investments
     .filter((item) => !item.archivedAt)
     .reduce((sum, item) => {
       const institution = state.institutions.find(
