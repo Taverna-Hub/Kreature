@@ -52,6 +52,7 @@ import { cardInvoices, payCardInvoice, recordCardPurchase } from "@/domain/cards
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
 import { Button } from "@/shared/ui/Button";
+import { CustomSelect } from "@/shared/ui/CustomSelect";
 import { Dialog as Modal } from "@/shared/ui/Dialog";
 import { EmptyState as Empty } from "@/shared/ui/EmptyState";
 import { FormField as Field, SelectOptions } from "@/shared/ui/FormField";
@@ -109,9 +110,9 @@ export function SummaryPage() {
       }
     >
       <section className="filter-card">
-        <div className="field period-filter">
+        <div className="field">
           <span>Período</span>
-          <Tabs
+          <CustomSelect
             label="Período do resumo"
             value={filter.mode}
             onChange={(mode) => setFilter((current) => ({ ...current, mode: mode as PeriodFilter["mode"] }))}

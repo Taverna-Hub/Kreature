@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   CalendarDays,
   CircleDollarSign,
-  Menu,
   PiggyBank,
   Plus,
   UserRound,
@@ -33,7 +32,6 @@ function ProfileAvatar() {
 export function AppShell() {
   const path = useRouterState({ select: (state) => state.location.pathname });
   const { state, loading, error } = useFinance();
-  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const selected = state.theme ?? "light";
@@ -70,23 +68,13 @@ export function AppShell() {
             <small>Seu dinheiro, do seu jeito</small>
           </span>
         </Link>
-        <button
-          className="icon-button menu-button"
-          type="button"
-          aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((value) => !value)}
-        >
-          <Menu />
-        </button>
-        <nav className={menuOpen ? "open" : ""} aria-label="Navegação principal">
+        <nav aria-label="Navegação principal">
           {navigationItems.map(([to, label, Icon]) => {
             const active = isCurrentRoute(to);
             return (
               <Link
                 key={to}
                 to={to}
-                onClick={() => setMenuOpen(false)}
                 className={active ? "active" : ""}
                 aria-current={active ? "page" : undefined}
               >
