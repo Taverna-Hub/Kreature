@@ -68,6 +68,7 @@ const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCusto
 const ProfileCard = lazy(() => import("@/features/profile/ProfileCard").then((module) => ({ default: module.ProfileCard })));
 
 const today = () => new Date().toISOString().slice(0, 10);
+const historyMonthTones = ["violet", "teal", "amber", "rose", "sky"];
 
 function CategoryImage({ image, name }: { image: Blob; name: string }) {
   const source = useObjectUrl(image);
@@ -520,8 +521,8 @@ function HistoryView({ state }: { state: FinanceState }) {
   return (
     <div className="history-list">
       {history.length ? (
-        history.map((item) => (
-          <article className="history-month panel" key={item.month}>
+        history.map((item, index) => (
+          <article className={`history-month panel tone-${historyMonthTones[index % historyMonthTones.length]}`} key={item.month}>
             <header className="history-header">
               <span className="history-title">
                 <strong>{monthLabel(item.month)}</strong>
@@ -1020,6 +1021,9 @@ export function InstitutionsPage() {
   const [reconciling, setReconciling] = useState<Institution>();
   const [busy, setBusy] = useState<string>();
   const active = state.institutions.filter((item) => !item.archivedAt);
+  const totalInBrl = active
+    .reduce((sum, item) => sum.plus(new Decimal(institutionBalance(state, item.id)).mul(item.exchangeRate)), new Decimal(0))
+    .toString();
   const archive = (item: Institution) =>
     void commit((draft) => {
       const used =
@@ -1068,6 +1072,12 @@ export function InstitutionsPage() {
         </>
       }
     >
+      <section className="metric-grid institution-total-grid" aria-label="Total nas instituições">
+        <article className="metric institutions-total">
+          <span>Total em instituições</span>
+          <strong>{money(totalInBrl)}</strong>
+        </article>
+      </section>
       <div className="entity-grid institutions">
         {active.length ? (
           active.map((item) => {
@@ -1296,6 +1306,7 @@ export function InvestmentsPage() {
   const { state, commit } = useFinance();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Investment>();
+  const [editingGroupId, setEditingGroupId] = useState<string>();
   const [busy, setBusy] = useState<string>();
   const active = state.investments.filter((item) => !item.archivedAt);
   const displayGroups = useMemo(() => investmentDisplayGroups(state), [state]);
@@ -1368,6 +1379,7 @@ export function InvestmentsPage() {
             const item = group.investments[0];
             const institution = state.institutions.find((candidate) => candidate.id === item.institutionId && !candidate.archivedAt);
             const isConsolidated = group.investments.length > 1;
+            const applicationDetails = [item.applicationType ?? investmentTypeLabel(item.type), item.contractedYield].filter(Boolean).join(" · ");
             const investedAmount = group.investments.reduce((sum, investment) => sum.plus(investment.investedAmount), new Decimal(0));
             const currentValue = group.investments.reduce((sum, investment) => sum.plus(investment.currentValue), new Decimal(0));
             const dividends = group.investments.reduce((sum, investment) => sum.plus(investment.dividends), new Decimal(0));
@@ -1381,16 +1393,27 @@ export function InvestmentsPage() {
                   <div>
                     <h2>{item.name}</h2>
                     <p>
-                      {isConsolidated ? `${group.investments.length} aplicações importadas` : investmentTypeLabel(item.type)} {item.ticker && `· ${item.ticker}`}
+                      {applicationDetails || `${group.investments.length} aplicações importadas`}{item.ticker && ` · ${item.ticker}`}
                     </p>
                   </div>
                   <div className="investment-card-actions">
                     {institution && <InstitutionLogo institution={institution} size={32} />}
+                    {isConsolidated && <button
+                      aria-label={`Editar detalhes de ${item.name}`}
+                      onClick={() => {
+                        setEditing(item);
+                        setEditingGroupId(group.id);
+                        setOpen(true);
+                      }}
+                    >
+                      <Pencil />
+                    </button>}
                     {!isConsolidated && <div className="row-actions">
                       <button
                         aria-label={`Editar ${item.name}`}
                         onClick={() => {
                           setEditing(item);
+                          setEditingGroupId(undefined);
                           setOpen(true);
                         }}
                       >
@@ -1480,9 +1503,24 @@ export function InvestmentsPage() {
         <InvestmentDialog
           value={editing}
           institutions={state.institutions}
-          onClose={() => setOpen(false)}
+          consolidated={Boolean(editingGroupId)}
+          onClose={() => {
+            setOpen(false);
+            setEditingGroupId(undefined);
+          }}
           onSave={async (record, createEntry) => {
             await commit((draft) => {
+              if (editingGroupId) {
+                const group = investmentDisplayGroups(draft).find((candidate) => candidate.id === editingGroupId);
+                group?.investments.forEach((investment) => {
+                  investment.type = record.type;
+                  investment.applicationType = record.applicationType;
+                  investment.contractedYield = record.contractedYield;
+                  investment.maturityDate = record.maturityDate;
+                  investment.updatedAt = now();
+                });
+                return;
+              }
               const index = draft.investments.findIndex((item) => item.id === record.id);
               if (index >= 0) draft.investments[index] = record;
               else {
@@ -1503,6 +1541,7 @@ export function InvestmentsPage() {
               }
             });
             setOpen(false);
+            setEditingGroupId(undefined);
           }}
         />
       )}
@@ -1513,11 +1552,13 @@ export function InvestmentsPage() {
 function InvestmentDialog({
   value,
   institutions,
+  consolidated,
   onClose,
   onSave,
 }: {
   value?: Investment;
   institutions: Institution[];
+  consolidated?: boolean;
   onClose: () => void;
   onSave: (value: Investment, createEntry: boolean) => Promise<void>;
 }) {
@@ -1537,6 +1578,7 @@ function InvestmentDialog({
               id: value?.id ?? uid("investment"),
               institutionId: String(data.get("institutionId") || "") || undefined,
               type: String(data.get("type")) as InvestmentType,
+              applicationType: String(data.get("applicationType") || "") || undefined,
               name: String(data.get("name")),
               ticker: String(data.get("ticker") || "").toUpperCase() || undefined,
               quantity,
@@ -1564,7 +1606,7 @@ function InvestmentDialog({
           );
         }}
       >
-        <Field label="Tipo">
+        <Field label="Classe financeira">
           <select name="type" defaultValue={value?.type ?? "cdb"}>
             <SelectOptions values={investmentTypeOptions} />
           </select>
@@ -1583,6 +1625,16 @@ function InvestmentDialog({
         </Field>
         <Field className="full" label="Nome do ativo">
           <input required name="name" defaultValue={value?.name} />
+        </Field>
+        <Field className="full" label="Tipo da aplicação">
+          <input name="applicationType" list="application-type-options" placeholder="Ex.: Caixinha Turbo" defaultValue={value?.applicationType} />
+          <datalist id="application-type-options">
+            <option value="Caixinha" />
+            <option value="Caixinha Turbo" />
+            <option value="CDB pós-fixado" />
+            <option value="CDB prefixado" />
+            <option value="RDB" />
+          </datalist>
         </Field>
         <Field label="Ticker / símbolo">
           <input name="ticker" defaultValue={value?.ticker} />
@@ -1608,8 +1660,8 @@ function InvestmentDialog({
         <Field label="Proventos">
           <input name="dividends" inputMode="decimal" defaultValue={value?.dividends ?? "0"} />
         </Field>
-        <Field label="Rentabilidade contratada">
-          <input name="contractedYield" defaultValue={value?.contractedYield} />
+        <Field label="Rendimento / indexador">
+          <input name="contractedYield" placeholder="Ex.: 115% do CDI" defaultValue={value?.contractedYield} />
         </Field>
         <Field label="Vencimento">
           <FormDatePicker name="maturityDate" defaultValue={value?.maturityDate} label="Data de vencimento" />
@@ -1620,6 +1672,7 @@ function InvestmentDialog({
             Registrar aplicação e reduzir saldo disponível
           </label>
         )}
+        {consolidated && <p className="form-hint full">Esses detalhes serão aplicados a todas as movimentações desta posição importada.</p>}
         <div className="form-actions full">
           <Button type="submit">Salvar investimento</Button>
         </div>
@@ -2035,6 +2088,7 @@ const entryKindLabel = (kind: EntryKind) =>
 const institutionTypeLabel = (type: InstitutionType) =>
   ({ bank: "Banco", broker: "Corretora", wallet: "Carteira digital", other: "Outra" })[type];
 const investmentTypeOptions: Array<[InvestmentType, string]> = [
+  ["cash_box", "Caixinha / reserva remunerada"],
   ["cdb", "CDB"],
   ["cri", "CRI"],
   ["cra", "CRA"],

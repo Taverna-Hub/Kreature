@@ -16,6 +16,7 @@ export type EntryKind =
   | "credit_payment"
   | "adjustment";
 export type InvestmentType =
+  | "cash_box"
   | "cdb"
   | "cri"
   | "cra"
@@ -155,6 +156,8 @@ export interface Investment {
   id: string;
   institutionId?: string;
   type: InvestmentType;
+  /** Nome comercial da aplicação, por exemplo, "Caixinha Turbo". */
+  applicationType?: string;
   name: string;
   ticker?: string;
   quantity: DecimalValue;
