@@ -8,7 +8,7 @@ import {
   transfer,
   updateEntry,
 } from "./ledger";
-import { buildSummary } from "./queries";
+import { buildSummary, monthlyHistory } from "./queries";
 import { editRecurrence, occurrencesFor, settleOccurrence } from "./recurrence";
 
 const institution = (id: string, openingBalance = "1000") => ({
@@ -72,6 +72,35 @@ describe("FinanceLedger", () => {
       amount: "234.56",
       source: "reconciliation",
     });
+  });
+});
+
+describe("histórico mensal", () => {
+  it("separa entradas e saídas pelo sinal, inclusive Pix importado", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    recordEntry(state, {
+      date: "2026-05-28",
+      description: "Pix recebido",
+      amount: "200",
+      currency: "BRL",
+      kind: "pix",
+      institutionId: "bank",
+      source: "import",
+    });
+    recordEntry(state, {
+      date: "2026-05-29",
+      description: "Pix enviado",
+      amount: "-75",
+      currency: "BRL",
+      kind: "pix",
+      institutionId: "bank",
+      source: "import",
+    });
+
+    expect(monthlyHistory(state)).toEqual([
+      expect.objectContaining({ month: "2026-05", income: "200", expenses: "75", balance: "125" }),
+    ]);
   });
 });
 

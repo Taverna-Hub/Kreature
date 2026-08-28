@@ -1,4 +1,4 @@
-import type { Accessory, Background, BodyShape, ColorTheme, Expression, Frame } from "./types";
+import type { Accessory, Background, BodyShape, ColorTheme, Expression } from "./types";
 
 export const BODY_OPTIONS: { id: BodyShape; label: string }[] = [
   { id: "round", label: "Redondinho" },
@@ -71,18 +71,6 @@ export const ACCESSORY_OPTIONS: { id: Accessory; label: string }[] = [
   { id: "backpack", label: "Mochila" },
 ];
 
-export const FRAME_OPTIONS: { id: Frame; label: string }[] = [
-  { id: "none", label: "Sem moldura" },
-  { id: "gold", label: "Dourada" },
-  { id: "neon", label: "Neon" },
-  { id: "pixel", label: "Pixel" },
-  { id: "star", label: "Estrelar" },
-  { id: "rainbow", label: "Arco-íris" },
-  { id: "checker", label: "Xadrez" },
-  { id: "bubble", label: "Bolha" },
-  { id: "stitched", label: "Costurada" },
-];
-
 export const BACKGROUND_OPTIONS: { id: Background; label: string }[] = [
   { id: "gradient", label: "Gradiente" },
   { id: "bubbles", label: "Bolhas" },
@@ -103,7 +91,6 @@ export const CATEGORIES = [
   { id: "color", label: "Cor" },
   { id: "expression", label: "Rosto" },
   { id: "accessories", label: "Acessórios" },
-  { id: "frame", label: "Moldura" },
   { id: "background", label: "Fundo" },
   { id: "identity", label: "Identidade" },
 ] as const;

@@ -27,6 +27,7 @@ import {
   type EntryInput,
 } from "@/domain/ledger";
 import { buildSummary, monthlyHistory } from "@/domain/queries";
+import { importedRdbPositionKey, investmentDisplayGroups, rdbPositionKey } from "@/domain/investment-groups";
 import { editRecurrence, occurrencesFor, settleOccurrence } from "@/domain/recurrence";
 import type {
   Category,
@@ -235,6 +236,7 @@ export function LaunchesPage() {
       }
     >
       <Tabs
+        className="launch-tabs"
         value={tab}
         onChange={setTab}
         items={[
@@ -514,38 +516,45 @@ function CreditCardDialog({ value, institutions, onClose, onSave }: { value?: Cr
 
 function HistoryView({ state }: { state: FinanceState }) {
   const history = monthlyHistory(state);
-  const [open, setOpen] = useState<string | undefined>(history[0]?.month);
   return (
     <div className="history-list">
       {history.length ? (
         history.map((item) => (
-          <article className="panel" key={item.month}>
-            <button
-              className="history-header"
-              onClick={() => setOpen(open === item.month ? undefined : item.month)}
-            >
-              <span>
+          <article className="history-month panel" key={item.month}>
+            <header className="history-header">
+              <span className="history-title">
                 <strong>{monthLabel(item.month)}</strong>
                 <small>{item.entries.length} lançamento(s)</small>
               </span>
-              <span className="history-numbers">
-                <i className="positive">+{money(item.income)}</i>
-                <i className="negative">−{money(item.expenses)}</i>
-                <b>{money(item.balance)}</b>
+              <span className="history-numbers" aria-label="Resumo do mês">
+                <span className="history-number income">
+                  <small>Entrou</small>
+                  <b>+{money(item.income)}</b>
+                </span>
+                <span className="history-number expense">
+                  <small>Saiu</small>
+                  <b>−{money(item.expenses)}</b>
+                </span>
+                <span className="history-number balance">
+                  <small>Saldo</small>
+                  <b>{money(item.balance)}</b>
+                </span>
               </span>
-            </button>
-            {open === item.month && (
-              <div className="history-details">
+            </header>
+            <details className="history-details">
+              <summary><span>Movimentações</span><small>Ver detalhes</small></summary>
+              <div className="history-entries">
                 {item.entries.map((entry) => (
-                  <div key={entry.id}>
-                    <span>
-                      {dateLabel(entry.date)} · {entry.description}
+                  <div className="history-entry" key={entry.id}>
+                    <span className="history-entry-copy">
+                      <small>{dateLabel(entry.date)}</small>
+                      <strong>{cleanTransactionDescription(entry.description)}</strong>
                     </span>
-                    <strong>{money(entry.brlAmount)}</strong>
+                    <strong className={new Decimal(entry.brlAmount).isNegative() ? "negative" : "positive"}>{money(entry.brlAmount)}</strong>
                   </div>
                 ))}
               </div>
-            )}
+            </details>
           </article>
         ))
       ) : (
@@ -759,23 +768,40 @@ function ImportView() {
         });
         if (item.createInvestment && item.kind === "investment") {
           const amount = new Decimal(item.amount).abs().toString();
-          draft.investments.push({
-            id: uid("investment"),
-            institutionId,
-            type: "other",
-            name: item.description,
-            quantity: "1",
-            averagePrice: amount,
-            investedAmount: amount,
-            currentPrice: amount,
-            currentValue: amount,
-            dividends: "0",
-            currency: entry.currency,
-            quoteStatus: "manual",
-            quoteMessage: "Criado pela importação",
-            createdAt: now(),
-            updatedAt: now(),
-          });
+          const positionKey = rdbPositionKey(institutionId, item.description);
+          const existing = positionKey
+            ? draft.investments.find((investment) => importedRdbPositionKey(investment) === positionKey)
+            : undefined;
+          if (existing) {
+            const quantity = new Decimal(existing.quantity).plus(1);
+            existing.quantity = quantity.toString();
+            existing.investedAmount = new Decimal(existing.investedAmount).plus(amount).toString();
+            existing.currentValue = new Decimal(existing.currentValue).plus(amount).toString();
+            existing.averagePrice = new Decimal(existing.investedAmount).div(quantity).toString();
+            existing.currentPrice = new Decimal(existing.currentValue).div(quantity).toString();
+            existing.updatedAt = now();
+            entry.investmentId = existing.id;
+          } else {
+            const investment = {
+              id: uid("investment"),
+              institutionId,
+              type: "other" as const,
+              name: item.description,
+              quantity: "1",
+              averagePrice: amount,
+              investedAmount: amount,
+              currentPrice: amount,
+              currentValue: amount,
+              dividends: "0",
+              currency: entry.currency,
+              quoteStatus: "manual" as const,
+              quoteMessage: "Criado pela importação",
+              createdAt: now(),
+              updatedAt: now(),
+            };
+            draft.investments.push(investment);
+            entry.investmentId = investment.id;
+          }
         }
       }
     });
@@ -1261,6 +1287,7 @@ export function InvestmentsPage() {
   const [editing, setEditing] = useState<Investment>();
   const [busy, setBusy] = useState<string>();
   const active = state.investments.filter((item) => !item.archivedAt);
+  const displayGroups = useMemo(() => investmentDisplayGroups(state), [state]);
   const total = active
     .reduce((sum, item) => sum.plus(item.currentValue), new Decimal(0))
     .toString();
@@ -1325,11 +1352,16 @@ export function InvestmentsPage() {
         </article>
       </section>
       <div className="entity-grid investments">
-        {active.length ? (
-          active.map((item) => {
-            const gain = new Decimal(item.currentValue).minus(item.investedAmount);
+        {displayGroups.length ? (
+          displayGroups.map((group) => {
+            const item = group.investments[0];
+            const isConsolidated = group.investments.length > 1;
+            const investedAmount = group.investments.reduce((sum, investment) => sum.plus(investment.investedAmount), new Decimal(0));
+            const currentValue = group.investments.reduce((sum, investment) => sum.plus(investment.currentValue), new Decimal(0));
+            const dividends = group.investments.reduce((sum, investment) => sum.plus(investment.dividends), new Decimal(0));
+            const gain = currentValue.minus(investedAmount);
             return (
-              <article className="entity-card" key={item.id}>
+              <article className="entity-card investment-card" key={group.id}>
                 <header>
                   <span className="entity-symbol investment">
                     <TrendingUp />
@@ -1337,10 +1369,10 @@ export function InvestmentsPage() {
                   <div>
                     <h2>{item.name}</h2>
                     <p>
-                      {investmentTypeLabel(item.type)} {item.ticker && `· ${item.ticker}`}
+                      {isConsolidated ? `${group.investments.length} aplicações importadas` : investmentTypeLabel(item.type)} {item.ticker && `· ${item.ticker}`}
                     </p>
                   </div>
-                  <div className="row-actions">
+                  {!isConsolidated && <div className="row-actions">
                     <button
                       onClick={() => {
                         setEditing(item);
@@ -1367,16 +1399,16 @@ export function InvestmentsPage() {
                     >
                       <Trash2 />
                     </button>
-                  </div>
+                  </div>}
                 </header>
                 <div className="investment-values">
                   <div>
                     <span>Aplicado</span>
-                    <strong>{money(item.investedAmount, item.currency)}</strong>
+                    <strong>{money(investedAmount.toString(), item.currency)}</strong>
                   </div>
                   <div>
                     <span>Atual</span>
-                    <strong>{money(item.currentValue, item.currency)}</strong>
+                    <strong>{money(currentValue.toString(), item.currency)}</strong>
                   </div>
                   <div>
                     <span>Resultado</span>
@@ -1386,12 +1418,21 @@ export function InvestmentsPage() {
                   </div>
                   <div>
                     <span>Proventos</span>
-                    <strong>{money(item.dividends, item.currency)}</strong>
+                    <strong>{money(dividends.toString(), item.currency)}</strong>
                   </div>
                 </div>
                 <p className={item.quoteStatus === "error" ? "warning-text" : "muted"}>
-                  {item.quoteMessage ?? "Valores informados manualmente"}
+                  {isConsolidated ? "Posição consolidada das importações desta instituição" : item.quoteMessage ?? "Valores informados manualmente"}
                 </p>
+                {group.history.length > 0 && <details className="investment-history">
+                  <summary><span>Histórico da posição</span><small>{group.history.length} movimentação(ões)</small></summary>
+                  <div>
+                    {group.history.map((entry) => <article key={entry.id}>
+                      <span><small>{dateLabel(entry.date)}</small><strong>{cleanTransactionDescription(entry.description)}</strong></span>
+                      <b className={new Decimal(entry.brlAmount).isNegative() ? "negative" : "positive"}>{money(entry.brlAmount, entry.currency)}</b>
+                    </article>)}
+                  </div>
+                </details>}
                 <footer>
                   {item.ticker && (
                     <Button
@@ -1892,7 +1933,7 @@ export function ProfilePage() {
           <Button onClick={() => setEditing(true)}><Sparkles />Editar personagem</Button>
           <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => void commit((draft) => { draft.theme = mode; })} />
         </article>}
-        {editing ? <CharacterCustomizer value={state.profile} onCancel={() => setEditing(false)} onSave={async (profile) => { await commit((draft) => { draft.profile = profile; }); setEditing(false); }} /> : <div className="profile-card-wrap"><ProfileCard config={state.profile} /></div>}
+        {editing ? <CharacterCustomizer value={state.profile} onCancel={() => setEditing(false)} onSave={async (profile) => { await commit((draft) => { draft.profile = profile; }); setEditing(false); }} /> : <div className="profile-card-wrap"><ProfileCard config={state.profile} size={168} /></div>}
         </section>
       </Suspense>
     </Page>

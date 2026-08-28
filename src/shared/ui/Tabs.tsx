@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from "react";
 
-export function Tabs({ value, onChange, items, label }: { value: string; onChange: (value: string) => void; items: ReadonlyArray<readonly [string, string]>; label?: string }) {
+export function Tabs({ value, onChange, items, label, className }: { value: string; onChange: (value: string) => void; items: ReadonlyArray<readonly [string, string]>; label?: string; className?: string }) {
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     const current = items.findIndex(([id]) => id === value);
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -10,5 +10,5 @@ export function Tabs({ value, onChange, items, label }: { value: string; onChang
     (event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next]).focus();
   };
 
-  return <div className="section-tabs" role="tablist" aria-label={label} onKeyDown={move}>{items.map(([id, itemLabel]) => <button type="button" role="tab" aria-selected={value === id} tabIndex={value === id ? 0 : -1} className={value === id ? "active" : ""} onClick={() => onChange(id)} key={id}>{itemLabel}</button>)}</div>;
+  return <div className={`section-tabs${className ? ` ${className}` : ""}`} role="tablist" aria-label={label} onKeyDown={move}>{items.map(([id, itemLabel]) => <button type="button" role="tab" aria-selected={value === id} tabIndex={value === id ? 0 : -1} className={value === id ? "active" : ""} onClick={() => onChange(id)} key={id}>{itemLabel}</button>)}</div>;
 }

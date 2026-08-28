@@ -6,7 +6,7 @@ import { Button } from "@/shared/ui/Button";
 import { Dialog } from "@/shared/ui/Dialog";
 import {
   ACCESSORY_OPTIONS, BACKGROUND_OPTIONS, BODY_OPTIONS, CATEGORIES, COLOR_OPTIONS,
-  EXPRESSION_OPTIONS, FRAME_OPTIONS, type CategoryId,
+  EXPRESSION_OPTIONS, type CategoryId,
 } from "./options";
 
 export function CharacterCustomizer({ value, onSave, onCancel }: {
@@ -90,18 +90,16 @@ function OptionPanel({ active, config, update, toggleAccessory }: {
 }) {
   const sample = (patch: Partial<ProfileConfig>) => {
     const sampleConfig: ProfileConfig = { ...config, accessories: [], frame: "none", background: "plain", nickname: "", title: "", bio: "", ...patch };
-    const frameClass = active === "frame" ? `frame-sample profile-frame-${sampleConfig.frame}` : "";
-    return <div className={`mascot-sample ${frameClass}`}><Mascot config={sampleConfig} size={56} animated={false} /></div>;
+    return <div className="mascot-sample"><Mascot config={sampleConfig} size={56} animated={false} /></div>;
   };
   if (active === "identity") return (
     <div className="profile-fields">
       <ProfileField label="Apelido"><input maxLength={24} value={config.nickname} onChange={(event) => update("nickname", event.target.value)} /></ProfileField>
-      <ProfileField label="Título"><input maxLength={36} value={config.title} onChange={(event) => update("title", event.target.value)} /></ProfileField>
       <ProfileField full label="Bio"><textarea maxLength={180} rows={4} value={config.bio} onChange={(event) => update("bio", event.target.value)} /></ProfileField>
     </div>
   );
   if (active === "color") return <div className="choices colors">{COLOR_OPTIONS.map((item) => <Choice key={item.id} label={item.label} selected={config.color === item.id} onClick={() => update("color", item.id)}><i style={{ background: `linear-gradient(135deg,${item.main},${item.shade})` }} /></Choice>)}</div>;
-  const options = active === "body" ? BODY_OPTIONS : active === "expression" ? EXPRESSION_OPTIONS : active === "accessories" ? ACCESSORY_OPTIONS : active === "frame" ? FRAME_OPTIONS : BACKGROUND_OPTIONS;
+  const options = active === "body" ? BODY_OPTIONS : active === "expression" ? EXPRESSION_OPTIONS : active === "accessories" ? ACCESSORY_OPTIONS : BACKGROUND_OPTIONS;
   return <div className="choices">{options.map((item) => {
     const selected = active === "accessories" ? config.accessories.includes(item.id as Accessory) : config[active] === item.id;
     const disabled = active === "accessories" && config.accessories.length >= 3 && !selected;

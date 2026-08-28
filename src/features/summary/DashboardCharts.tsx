@@ -2,9 +2,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,10 +14,11 @@ import { EmptyState } from "@/shared/ui/EmptyState";
 type HistoryPoint = { month: string; balance: string };
 
 export function DashboardCharts({ categoryTotals, history }: { categoryTotals: Summary["categoryTotals"]; history: HistoryPoint[] }) {
+  const largestCategory = categoryTotals.reduce((largest, item) => Math.max(largest, Number(item.amount)), 0);
   return <section className="dashboard-grid">
     <article className="panel">
       <div className="panel-heading"><div><span className="eyebrow">Distribuição</span><h2>Gastos por categoria</h2></div></div>
-      {categoryTotals.length ? <div className="chart-with-legend"><div className="donut"><ResponsiveContainer width="100%" height={260}><PieChart><Pie data={categoryTotals} dataKey="amount" nameKey="name" innerRadius={65} outerRadius={100} paddingAngle={3}>{categoryTotals.map((item) => <Cell key={item.name} fill={item.color} />)}</Pie><Tooltip formatter={(value) => money(String(value))} /></PieChart></ResponsiveContainer></div><ul className="legend">{categoryTotals.map((item) => <li key={item.name}><i style={{ background: item.color }} /><span>{item.name}</span><strong>{money(item.amount)}</strong></li>)}</ul></div> : <EmptyState title="Sem gastos no período" description="Registre uma despesa para visualizar a distribuição." />}
+      {categoryTotals.length ? <div className="category-breakdown" role="list" aria-label="Gastos por categoria">{categoryTotals.map((item) => <div className="category-bar" key={item.name} role="listitem"><span className="category-bar-label"><i style={{ background: item.color }} />{item.name}</span><span className="category-bar-track" aria-hidden="true"><b style={{ width: `${largestCategory ? Math.max((Number(item.amount) / largestCategory) * 100, 3) : 0}%`, background: item.color }} /></span><strong>{money(item.amount)}</strong></div>)}</div> : <EmptyState title="Sem gastos no período" description="Registre uma despesa para visualizar a distribuição." />}
     </article>
     <article className="panel">
       <div className="panel-heading"><div><span className="eyebrow">Evolução</span><h2>Saldo mensal</h2></div></div>

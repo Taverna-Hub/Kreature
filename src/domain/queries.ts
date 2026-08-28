@@ -90,9 +90,9 @@ export function monthlyHistory(state: FinanceState) {
         expenses: new Decimal(0),
         entries: [],
       };
-      if (entry.kind === "income") current.income = current.income.plus(entry.brlAmount);
-      if (entry.kind === "expense" || entry.kind === "card_purchase")
-        current.expenses = current.expenses.plus(new Decimal(entry.brlAmount).abs());
+      const amount = new Decimal(entry.brlAmount);
+      if (amount.isPositive()) current.income = current.income.plus(amount);
+      if (amount.isNegative()) current.expenses = current.expenses.plus(amount.abs());
       current.entries.push(entry);
       months.set(key, current);
     });
