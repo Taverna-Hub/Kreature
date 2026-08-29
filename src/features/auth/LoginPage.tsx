@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Sparkles } from "lucide-react";
+import { Button } from "@/shared/ui/Button";
 import { useAuth } from "@/auth/auth-context";
 
 type Mode = "signin" | "signup";
@@ -60,13 +61,13 @@ export function LoginPage() {
             <input autoComplete={mode === "signin" ? "current-password" : "new-password"} id="password" minLength={6} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
             {error ? <p className="login-error" role="alert">{error}</p> : null}
             {feedback ? <p className="login-success" role="status">{feedback}</p> : null}
-            <button className="button primary" disabled={pending} type="submit">{pending ? "Aguarde…" : mode === "signin" ? "Entrar no Kreature" : "Criar conta"} <ArrowRight /></button>
+            <Button block loading={pending} type="submit">{pending ? "Aguarde…" : mode === "signin" ? "Entrar no Kreature" : "Criar conta"} <ArrowRight /></Button>
           </form>
           <div className="login-links">
             {mode === "signin" ? <Link to="/redefinir-senha">Esqueci minha senha</Link> : null}
-            <button className="login-link-button" type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(undefined); setFeedback(undefined); }}>
+            <Button variant="link" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(undefined); setFeedback(undefined); }}>
               {mode === "signin" ? "Ainda não tenho conta" : "Já tenho uma conta"}
-            </button>
+            </Button>
           </div>
         </div>
         <aside className="login-welcome" aria-hidden="true">

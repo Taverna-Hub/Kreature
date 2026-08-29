@@ -1,7 +1,7 @@
 import Decimal from "decimal.js";
 import { now, uid } from "./defaults";
 import { learnClassificationRule } from "./classification";
-import type { FinanceState, LedgerEntry } from "./types";
+import type { CategoryFlow, FinanceState, LedgerEntry } from "./types";
 
 export type EntryInput = Omit<
   LedgerEntry,
@@ -14,14 +14,23 @@ export type EntryInput = Omit<
 };
 
 const negativeKinds = new Set(["expense", "investment", "reserve", "credit_payment", "card_purchase"]);
-const signedAmount = (kind: LedgerEntry["kind"], value: string) => {
+/**
+ * A categoria é a classificação mais específica que o usuário deu: uma categoria de despesa
+ * nunca resulta em valor positivo, nem uma de receita em valor negativo. Sem categoria, o tipo
+ * do lançamento decide — e tipos ambíguos (Pix, transferência, ajuste) mantêm o sinal informado.
+ */
+export const signedAmount = (kind: LedgerEntry["kind"], value: string, flow?: CategoryFlow) => {
   const decimal = new Decimal(value || 0);
+  if (flow) return (flow === "expense" ? decimal.abs().negated() : decimal.abs()).toString();
   if (kind === "adjustment" || kind === "transfer" || kind === "pix") return decimal.toString();
   return (negativeKinds.has(kind) ? decimal.abs().negated() : decimal.abs()).toString();
 };
 
-function buildEntry(input: EntryInput, id = uid("entry"), createdAt = now()): LedgerEntry {
-  const amount = signedAmount(input.kind, input.amount);
+const categoryFlow = (state: FinanceState, categoryId?: string): CategoryFlow | undefined =>
+  categoryId ? state.categories.find((item) => item.id === categoryId)?.flow : undefined;
+
+function buildEntry(input: EntryInput, id = uid("entry"), createdAt = now(), flow?: CategoryFlow): LedgerEntry {
+  const amount = signedAmount(input.kind, input.amount, flow);
   const rate = new Decimal(input.brlRate ?? (input.currency === "BRL" ? 1 : 0));
   return {
     ...input,
@@ -47,7 +56,7 @@ export function recordEntry(state: FinanceState, input: EntryInput): LedgerEntry
     !state.categories.some((item) => item.id === input.categoryId && !item.archivedAt)
   )
     throw new Error("Categoria inválida ou arquivada.");
-  const entry = buildEntry(input);
+  const entry = buildEntry(input, undefined, undefined, categoryFlow(state, input.categoryId));
   state.entries.push(entry);
   if ((input.source ?? "manual") === "manual") learnClassificationRule(state, entry);
   return entry;
@@ -57,7 +66,7 @@ export function updateEntry(state: FinanceState, id: string, input: EntryInput):
   const index = state.entries.findIndex((item) => item.id === id);
   if (index < 0) throw new Error("Lançamento não encontrado.");
   const previous = state.entries[index];
-  const updated = buildEntry(input, id, previous.createdAt);
+  const updated = buildEntry(input, id, previous.createdAt, categoryFlow(state, input.categoryId));
   state.entries[index] = updated;
   if ((input.source ?? "manual") === "manual") learnClassificationRule(state, updated);
   return updated;

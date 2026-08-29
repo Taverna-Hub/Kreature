@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { IconButton } from "@/shared/ui/Button";
 
 const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -47,7 +48,7 @@ export function Dialog({ title, children, onClose }: { title: string; children: 
       <section ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <header>
           <h2 id="dialog-title">{title}</h2>
-          <button className="icon-button" type="button" aria-label="Fechar" onClick={onClose}><X /></button>
+          <IconButton label="Fechar" variant="ghost" onClick={onClose}><X /></IconButton>
         </header>
         {children}
       </section>
