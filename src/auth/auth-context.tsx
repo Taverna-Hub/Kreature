@@ -16,7 +16,13 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const appUrl = () => window.location.origin;
-const publicMessage = (fallback: string) => fallback;
+const publicMessage = (fallback: string, cause?: { message?: string; status?: number }) => {
+  if (cause?.message && /failed to fetch|network|fetch failed|load failed/i.test(cause.message)) {
+    return "Não foi possível conectar ao Supabase. Confira as variáveis públicas do deploy e tente novamente.";
+  }
+  if (cause?.status === 401) return "Sua sessão expirou. Entre novamente para continuar.";
+  return fallback;
+};
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<User>();
@@ -35,7 +41,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void supabase.auth.getUser().then(({ data, error: cause }) => {
       if (!active) return;
       setUser(data.user ?? undefined);
-      setError(cause ? publicMessage("Não foi possível restaurar sua sessão.") : undefined);
+      setError(cause ? publicMessage("Não foi possível restaurar sua sessão.", cause) : undefined);
       setStatus(data.user ? "authenticated" : "anonymous");
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {

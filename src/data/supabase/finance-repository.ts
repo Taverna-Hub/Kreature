@@ -37,6 +37,9 @@ const nullable = (value: string | undefined) => value ?? null;
 
 function databaseMessage(context: string, cause: { code?: string; message?: string } | null) {
   if (cause?.message) console.error(`Supabase ${context}:`, cause.message);
+  if (cause?.message && /failed to fetch|network|fetch failed|load failed/i.test(cause.message)) {
+    return "Não foi possível conectar ao Supabase. Confira as variáveis públicas do deploy e tente novamente.";
+  }
   if (cause?.code === "42P01" || cause?.code === "PGRST205") {
     return "O banco do Kreature ainda não foi configurado. Aplique as migrations do Supabase e tente novamente.";
   }
