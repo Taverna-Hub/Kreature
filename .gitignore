@@ -5,3 +5,9 @@ coverage/
 *.log
 .DS_Store
 .agents
+extratos
+.env
+.env.*
+!.env.example
+*CONTEXT.md
+docs

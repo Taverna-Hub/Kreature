@@ -2,7 +2,11 @@ import type { Category, FinanceState } from "./types";
 import { DEFAULT_PROFILE } from "@/features/profile/types";
 
 export const now = () => new Date().toISOString();
-export const uid = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+/** Supabase rows use UUID primary keys. The prefix is kept only for call-site readability. */
+export const uid = (prefix: string): string => {
+  void prefix;
+  return crypto.randomUUID();
+};
 
 const categorySeed: Array<[string, string, string, Category["flow"]]> = [
   ["Moradia", "Home", "#f97316", "expense"],

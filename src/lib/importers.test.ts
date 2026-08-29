@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { emptyFinanceState } from "@/domain/defaults";
-import { analyzeFile } from "./importers";
+import { analyzeFile, parseAmount } from "./importers";
 
 describe("StatementImport", () => {
+  it.each([
+    ["R$ 1.234,56", "1234.56"],
+    ["- 1.234,56", "-1234.56"],
+    ["1.234,56-", "-1234.56"],
+    ["1234,56 D", "-1234.56"],
+    ["1234,56 C", "1234.56"],
+  ])("interpreta o valor financeiro %s", (input, expected) => {
+    expect(parseAmount(input)).toBe(expected);
+  });
+
   it("analisa CSV, explica a classificação e marca uma reimportação", async () => {
     const state = emptyFinanceState();
     const csv = "data,descricao,valor\n10/01/2026,Mercado Central,-125.90";

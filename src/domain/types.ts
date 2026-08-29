@@ -38,6 +38,8 @@ export interface Category {
   color: string;
   flow: CategoryFlow;
   image?: Blob;
+  /** Private object key in Supabase Storage, never a public URL. */
+  imagePath?: string;
   isDefault: boolean;
   archivedAt?: string;
   createdAt: string;
@@ -228,6 +230,12 @@ export interface ImportCandidate {
   fingerprint: string;
   duplicate: boolean;
   similarDuplicate?: boolean;
+  /** Origem auditável da extração de extrato em PDF/imagem. */
+  page?: number;
+  extractionSource?: "native" | "ocr";
+  rawText?: string;
+  needsReview?: boolean;
+  reviewReasons?: string[];
 }
 
 export interface FinanceState {

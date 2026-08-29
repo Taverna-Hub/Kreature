@@ -7,64 +7,73 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import type { FinanceState } from "@/domain/types";
+import { useAuth } from "@/auth/auth-context";
 import { emptyFinanceState } from "@/domain/defaults";
-import { DexieFinanceRepository, type FinanceRepository } from "./repository";
+import type { FinanceState } from "@/domain/types";
+import type { FinanceRepository } from "./repository";
+import { SupabaseFinanceRepository } from "./supabase/finance-repository";
 
 type FinanceContextValue = {
   state: FinanceState;
   loading: boolean;
   error?: string;
-  migrationNotice?: string;
   commit: (change: (draft: FinanceState) => unknown | Promise<unknown>) => Promise<void>;
   refresh: () => Promise<void>;
 };
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
-const defaultRepository = new DexieFinanceRepository();
 
-export function FinanceProvider({
+/** A test repository can be injected; the running app is always backed by Supabase. */
+export function FinanceProvider({ children, repository }: PropsWithChildren<{ repository?: FinanceRepository }>) {
+  if (repository) return <FinanceStateProvider repository={repository}>{children}</FinanceStateProvider>;
+  return <AuthenticatedFinanceProvider>{children}</AuthenticatedFinanceProvider>;
+}
+
+function AuthenticatedFinanceProvider({ children }: PropsWithChildren) {
+  const { user, status } = useAuth();
+  const userId = user?.id;
+  const repository = useMemo(() => userId ? new SupabaseFinanceRepository() : undefined, [userId]);
+  return <FinanceStateProvider repository={repository} enabled={status === "authenticated"}>{children}</FinanceStateProvider>;
+}
+
+function FinanceStateProvider({
   children,
-  repository = defaultRepository,
-}: PropsWithChildren<{ repository?: FinanceRepository }>) {
+  repository,
+  enabled = true,
+}: PropsWithChildren<{ repository?: FinanceRepository; enabled?: boolean }>) {
   const [state, setState] = useState(emptyFinanceState);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
-  const [migrationNotice, setMigrationNotice] = useState<string>();
   const refresh = useCallback(async () => {
+    if (!repository || !enabled) {
+      setState(emptyFinanceState());
+      setError(undefined);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(undefined);
     try {
       setState(await repository.load());
-      setMigrationNotice(repository instanceof DexieFinanceRepository ? repository.consumeMigrationNotice() : undefined);
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Não foi possível abrir seus dados locais.",
-      );
+      setError(cause instanceof Error ? cause.message : "Não foi possível carregar seus dados.");
     } finally {
       setLoading(false);
     }
-  }, [repository]);
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-  const commit = useCallback(
-    async (change: (draft: FinanceState) => unknown | Promise<unknown>) => {
-      setError(undefined);
-      try {
-        setState(await repository.transact(change));
-      } catch (cause) {
-        const message = cause instanceof Error ? cause.message : "Não foi possível salvar.";
-        setError(message);
-        throw cause;
-      }
-    },
-    [repository],
-  );
-  const value = useMemo(
-    () => ({ state, loading, error, migrationNotice, commit, refresh }),
-    [state, loading, error, migrationNotice, commit, refresh],
-  );
+  }, [repository, enabled]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  const commit = useCallback(async (change: (draft: FinanceState) => unknown | Promise<unknown>) => {
+    if (!repository || !enabled) throw new Error("Entre novamente para salvar suas informações.");
+    setError(undefined);
+    try {
+      setState(await repository.transact(change));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Não foi possível salvar.";
+      setError(message);
+      throw cause;
+    }
+  }, [repository, enabled]);
+  const value = useMemo(() => ({ state, loading, error, commit, refresh }), [state, loading, error, commit, refresh]);
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }
 

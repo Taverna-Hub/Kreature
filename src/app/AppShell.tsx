@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   CalendarDays,
   CircleDollarSign,
@@ -9,6 +9,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useFinance } from "@/data/finance-context";
+import { useAuth } from "@/auth/auth-context";
 import { Mascot } from "@/features/profile/Mascot";
 
 const navigationItems = [
@@ -30,8 +31,14 @@ function ProfileAvatar() {
 }
 
 export function AppShell() {
+  const navigate = useNavigate();
   const path = useRouterState({ select: (state) => state.location.pathname });
-  const { state, loading, error, migrationNotice } = useFinance();
+  const { state, loading, error } = useFinance();
+  const { status, error: authError } = useAuth();
+
+  useEffect(() => {
+    if (status === "anonymous") void navigate({ to: "/login", replace: true });
+  }, [status, navigate]);
 
   useEffect(() => {
     const selected = state.theme ?? "light";
@@ -109,9 +116,8 @@ export function AppShell() {
         </Link>
       </nav>
 
-      {error ? <div className="global-error" role="alert">{error}</div> : null}
-      {migrationNotice ? <div className="global-notice" role="status">{migrationNotice}</div> : null}
-      {loading ? (
+      {error || authError ? <div className="global-error" role="alert">{error ?? authError}</div> : null}
+      {loading || status === "loading" ? (
         <div className="loading" aria-live="polite">
           <span className="brand-mark"><span /></span>
           <p>Organizando suas finanças...</p>

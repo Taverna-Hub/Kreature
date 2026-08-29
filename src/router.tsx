@@ -1,8 +1,8 @@
 import { lazy, Suspense, type ComponentType } from "react";
 import { createRootRoute, createRoute, createRouter, redirect, Outlet } from "@tanstack/react-router";
 import { AppShell } from "@/app/AppShell";
-import { hasLocalSession } from "@/auth/session";
 import { LoginPage } from "@/features/auth/LoginPage";
+import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
 
 function lazyPage(load: () => Promise<{ default: ComponentType }>) {
   const LazyPage = lazy(load);
@@ -22,17 +22,12 @@ const root = createRootRoute({ component: Outlet });
 const login = createRoute({
   getParentRoute: () => root,
   path: "/login",
-  beforeLoad: () => {
-    if (hasLocalSession()) throw redirect({ to: "/resumo" });
-  },
   component: LoginPage,
 });
+const resetPassword = createRoute({ getParentRoute: () => root, path: "/redefinir-senha", component: ResetPasswordPage });
 const authenticated = createRoute({
   getParentRoute: () => root,
   id: "authenticated",
-  beforeLoad: () => {
-    if (!hasLocalSession()) throw redirect({ to: "/login" });
-  },
   component: AppShell,
 });
 const index = createRoute({
@@ -74,6 +69,7 @@ const profile = createRoute({
 });
 const routeTree = root.addChildren([
   login,
+  resetPassword,
   authenticated.addChildren([index, summary, launches, institutions, investments, planning, profile]),
 ]);
 export const router = createRouter({ routeTree, defaultPreload: "intent" });

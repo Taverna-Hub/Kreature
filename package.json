@@ -12,10 +12,10 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.109.0",
     "@tanstack/react-router": "1.150.0",
     "date-fns": "^4.1.0",
     "decimal.js": "^10.6.0",
-    "dexie": "^4.2.1",
     "framer-motion": "^12.40.0",
     "lucide-react": "^0.575.0",
     "papaparse": "^5.5.3",
@@ -38,7 +38,6 @@
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
-    "fake-indexeddb": "^6.2.4",
     "globals": "^15.15.0",
     "jsdom": "^26.1.0",
     "typescript": "^5.9.2",

@@ -8,7 +8,10 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => <a href={to} {...props}>{children}</a>,
   Outlet: () => <div>Conteúdo</div>,
   useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => string }) => select({ location: { pathname: "/perfil" } }),
+  useNavigate: () => vi.fn(),
 }));
+
+vi.mock("@/auth/auth-context", () => ({ useAuth: () => ({ status: "authenticated" }) }));
 
 import { AppShell } from "@/app/AppShell";
 

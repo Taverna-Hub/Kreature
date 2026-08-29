@@ -3,6 +3,11 @@ import Decimal from "decimal.js";
 import type { FinanceState, ImportCandidate, InstitutionCatalogId } from "@/domain/types";
 import { uid } from "@/domain/defaults";
 import { classifyTransaction, normalizeClassificationText } from "@/domain/classification";
+import { detectStatementInstitution } from "./statement-import/bank-detector";
+import { analyzePdfStatement, parsePdfPages } from "./statement-import/pdf-pipeline";
+import type { StatementProgress } from "./statement-import/types";
+import { validateStatementBalances, type StatementValidation } from "./statement-import/validation";
+import { detectImportDuplicate } from "./statement-import/duplicate-detector";
 
 export type ImportAnalysis = {
   source: string;
@@ -10,7 +15,10 @@ export type ImportAnalysis = {
   currency: string;
   candidates: ImportCandidate[];
   warnings: string[];
+  validation?: StatementValidation;
 };
+
+export type ImportAnalysisOptions = { onProgress?: (progress: StatementProgress) => void };
 
 type ParsedRow = { date: string; description: string; amount: string; externalId?: string; currency?: string };
 
@@ -35,9 +43,15 @@ const readBuffer = (file: File) =>
       });
 
 export const parseAmount = (value: unknown) => {
-  const raw = String(value ?? "").replace(/R\$|US\$|€|£|\s/g, "").replace(/^\+/, "");
-  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
-  try { return new Decimal(normalized || 0).toString(); } catch { return "0"; }
+  const compact = String(value ?? "").replace(/R\$|US\$|€|£|\s/g, "");
+  const marker = compact.at(-1)?.toUpperCase();
+  const negative = compact.startsWith("-") || marker === "D" || marker === "-";
+  const unsigned = compact.replace(/[CD-]$/i, "").replace(/^[-+]/, "");
+  const normalized = unsigned.includes(",") ? unsigned.replace(/\./g, "").replace(",", ".") : unsigned;
+  try {
+    const amount = new Decimal(normalized || 0).abs();
+    return (negative ? amount.negated() : amount).toString();
+  } catch { return "0"; }
 };
 export const parseDate = (value: unknown) => {
   const raw = String(value ?? "").trim();
@@ -49,12 +63,7 @@ export const parseDate = (value: unknown) => {
   return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
 };
 
-const BANK_HINTS: Array<[InstitutionCatalogId, RegExp]> = [
-  ["nubank", /nubank|nu pagamentos|nupay/], ["itau", /ita[uú]|unibanco/],
-  ["inter", /banco inter/], ["caixa", /caixa econ[oô]mica|\bcaixa\b/],
-  ["mercado-pago", /mercado pago/], ["picpay", /picpay/], ["wise", /wise/ as RegExp],
-];
-const detectInstitution = (text: string) => BANK_HINTS.find(([, pattern]) => pattern.test(normalize(text)))?.[0];
+const detectInstitution = detectStatementInstitution;
 const detectCurrency = (text: string) => /\bEUR\b|€/.test(text) ? "EUR" : /\bUSD\b|US\$/.test(text) ? "USD" : /\bGBP\b|£/.test(text) ? "GBP" : "BRL";
 
 /** Removes banking identifiers while retaining the useful counterparty and movement direction. */
@@ -78,14 +87,38 @@ export function cleanTransactionDescription(value: string) {
   return counterparty ? `${label} · ${counterparty}` : label;
 }
 
-const fingerprint = (institutionId: string | undefined, date: string, description: string, amount: string) => `${institutionId ?? ""}|${date}|${normalize(description).replace(/\s+/g, " ")}|${amount}`;
-function candidate(row: ParsedRow, state: FinanceState, parser: string, institutionHint?: InstitutionCatalogId): ImportCandidate {
+export const importFingerprint = (institutionId: string | undefined, date: string, description: string, amount: string, kind: string) =>
+  `${institutionId ?? ""}|${date}|${normalize(description).replace(/\s+/g, " ")}|${amount}|${kind}`;
+function candidate(
+  row: ParsedRow,
+  state: FinanceState,
+  parser: string,
+  institutionHint?: InstitutionCatalogId,
+  extraction?: Pick<ImportCandidate, "page" | "extractionSource" | "rawText" | "needsReview" | "reviewReasons"> & { confidence?: number },
+): ImportCandidate {
   const description = cleanTransactionDescription(row.description);
   const result = classifyTransaction(description, row.amount, state.categories, state.classificationRules);
-  const key = fingerprint(institutionHint, row.date, description, row.amount);
-  const same = state.entries.filter((entry) => entry.date === row.date && entry.amount === row.amount);
-  const duplicate = state.entries.some((entry) => (row.externalId && entry.notes?.includes(`external:${row.externalId}`)) || entry.fingerprint === key);
-  return { id: uid("candidate"), date: row.date, description, amount: row.amount, currency: row.currency ?? "BRL", externalId: row.externalId, detectedInstitutionId: institutionHint, parser, source: parser, ...result, suggestedKind: result.kind, suggestedCategoryId: result.categoryId, include: !duplicate, createInvestment: result.kind === "investment", fingerprint: key, duplicate, similarDuplicate: !duplicate && same.some((entry) => normalize(entry.description) === normalize(description)) };
+  const key = importFingerprint(institutionHint, row.date, description, row.amount, result.kind);
+  const duplicateResult = detectImportDuplicate(state, {
+    date: row.date,
+    description,
+    amount: row.amount,
+    kind: result.kind,
+    fingerprint: key,
+    externalId: row.externalId,
+    institutionHint,
+  });
+  const reviewReasons = extraction?.reviewReasons ?? [];
+  const needsReview = extraction?.needsReview || reviewReasons.length > 0;
+  return {
+    id: uid("candidate"), date: row.date, description, amount: row.amount, currency: row.currency ?? "BRL", externalId: row.externalId,
+    detectedInstitutionId: institutionHint, parser, source: parser, ...result,
+    suggestedKind: result.kind, suggestedCategoryId: result.categoryId,
+    confidence: Math.min(result.confidence, extraction?.confidence ?? 1),
+    reason: needsReview ? reviewReasons.join(" ") || result.reason : result.reason,
+    include: !duplicateResult.exact && !duplicateResult.possible && !needsReview, createInvestment: result.kind === "investment", fingerprint: key,
+    duplicate: duplicateResult.exact, similarDuplicate: duplicateResult.possible, ...extraction,
+  };
 }
 
 function validRows(rows: ParsedRow[], state: FinanceState, parser: string, hint?: InstitutionCatalogId): ImportAnalysis {
@@ -118,51 +151,76 @@ function parseOfx(text: string, state: FinanceState): ImportAnalysis {
   return validRows(rows, state, "ofx", detectInstitution(text));
 }
 
-function parsePdfText(text: string, state: FinanceState, name: string): ImportAnalysis {
-  const hint = detectInstitution(`${name}\n${text}`); const currency = detectCurrency(text);
-  const rows: ParsedRow[] = [];
-  const pattern = /(\d{2}[/-]\d{2}[/-]\d{2,4})\s+(.+?)\s+(?:R\$\s*)?([+-]?\d{1,3}(?:\.\d{3})*,\d{2}|[+-]?\d+[.,]\d{2})(?=\s+(?:R\$\s*)?[+-]?\d{1,3}(?:\.\d{3})*,\d{2}|\s+\d{2}[/-]\d{2}[/-]\d{2,4}|$)/g;
-  for (const match of text.matchAll(pattern)) rows.push({ date: parseDate(match[1]), description: match[2].replace(/\s+/g, " ").trim(), amount: parseAmount(match[3]), currency });
-  return validRows(rows, state, hint ? `${hint}-pdf` : "pdf-genérico", hint);
+async function parsePdfHybrid(file: File, state: FinanceState, options?: ImportAnalysisOptions): Promise<ImportAnalysis> {
+  const extracted = await analyzePdfStatement(file, options?.onProgress);
+  const pages = parsePdfPages(extracted.pages, options?.onProgress);
+  const documentText = extracted.pages.map((page) => page.text).join("\n");
+  const institutionHint = detectStatementInstitution(`${file.name}\n${documentText}`);
+  const currency = detectCurrency(documentText);
+  const candidates = pages.flatMap((page) => page.transactions.map((transaction) => candidate(
+    { date: transaction.date, description: transaction.description, amount: transaction.amount, currency },
+    state,
+    institutionHint ? `${institutionHint}-pdf` : "pdf-hibrido",
+    institutionHint,
+    {
+      page: transaction.page,
+      extractionSource: transaction.source,
+      rawText: transaction.rawText,
+      needsReview: transaction.needsReview,
+      reviewReasons: transaction.reviewReasons,
+      confidence: transaction.confidence,
+    },
+  )));
+  const validation = validateStatementBalances(pages, options?.onProgress);
+  const warnings = [...extracted.warnings, ...pages.flatMap((page) => page.warnings)];
+  if (!candidates.length) warnings.push("Nenhuma movimentação confiável foi encontrada. Tente um PDF mais nítido ou registre os itens manualmente.");
+  return { source: institutionHint ? `${institutionHint}-pdf` : "pdf-hibrido", institutionHint, currency, candidates, warnings, validation };
 }
 
-async function pdfText(file: File) {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs"); const pdf = await pdfjs.getDocument({ data: await readBuffer(file) }).promise;
-  const pages: string[] = [];
-  for (let index = 1; index <= pdf.numPages; index += 1) { const content = await (await pdf.getPage(index)).getTextContent(); pages.push(content.items.map((item) => ("str" in item ? item.str : "")).join(" ")); }
-  return pages.join("\n");
-}
-
-async function ocr(file: File): Promise<string> {
+async function ocr(file: File): Promise<{ text: string; confidence: number }> {
   const { createWorker } = await import("tesseract.js"); const worker = await createWorker("por");
-  try { const result = await worker.recognize(file); return result.data.text; } finally { await worker.terminate(); }
-}
-
-async function ocrPdf(file: File): Promise<string> {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const pdf = await pdfjs.getDocument({ data: await readBuffer(file) }).promise;
-  const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker("por");
   try {
-    const pages: string[] = [];
-    for (let index = 1; index <= pdf.numPages; index += 1) {
-      const page = await pdf.getPage(index);
-      const viewport = page.getViewport({ scale: 2 });
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-      await page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport }).promise;
-      pages.push((await worker.recognize(canvas)).data.text);
-    }
-    return pages.join("\n");
+    const result = await worker.recognize(file);
+    return { text: result.data.text, confidence: result.data.confidence ?? 0 };
   } finally { await worker.terminate(); }
 }
 
-export async function analyzeFile(file: File, state: FinanceState): Promise<ImportAnalysis> {
+async function parseStatementImage(file: File, state: FinanceState, options?: ImportAnalysisOptions): Promise<ImportAnalysis> {
+  options?.onProgress?.({ stage: "ocr", message: "Reconhecendo texto da imagem", currentPage: 1, totalPages: 1 });
+  let extracted: Awaited<ReturnType<typeof ocr>>;
+  try { extracted = await ocr(file); }
+  catch { throw new Error("Não foi possível reconhecer esta imagem. Verifique se o arquivo está legível e tente novamente."); }
+  const input = { page: 1, source: "ocr" as const, text: extracted.text, ocrConfidence: extracted.confidence };
+  const pages = parsePdfPages([input], options?.onProgress);
+  const institutionHint = detectStatementInstitution(`${file.name}\n${extracted.text}`);
+  const currency = detectCurrency(extracted.text);
+  const candidates = pages[0].transactions.map((transaction) => candidate(
+    { date: transaction.date, description: transaction.description, amount: transaction.amount, currency },
+    state,
+    institutionHint ? `${institutionHint}-imagem` : "imagem-ocr",
+    institutionHint,
+    {
+      page: transaction.page,
+      extractionSource: "ocr",
+      rawText: transaction.rawText,
+      needsReview: transaction.needsReview,
+      reviewReasons: transaction.reviewReasons,
+      confidence: transaction.confidence,
+    },
+  ));
+  const warnings = [...pages[0].warnings];
+  if (!candidates.length) warnings.push("Nenhuma movimentação foi reconhecida na imagem. Use uma imagem mais nítida ou registre os itens manualmente.");
+  return { source: institutionHint ? `${institutionHint}-imagem` : "imagem-ocr", institutionHint, currency, candidates, warnings };
+}
+
+export async function analyzeFile(file: File, state: FinanceState, options?: ImportAnalysisOptions): Promise<ImportAnalysis> {
+  if (!file.size) throw new Error("O arquivo está vazio.");
+  if (file.size > 25 * 1024 * 1024) throw new Error("O arquivo é maior que 25 MB. Escolha um arquivo menor.");
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".ofx") || lower.endsWith(".qfx")) return parseOfx(await readText(file), state);
   if (lower.endsWith(".csv")) return parseCsv(await readText(file), state, file.name);
   if (lower.endsWith(".xls") || lower.endsWith(".xlsx")) { const XLSX = await import("xlsx"); const workbook = XLSX.read(await readBuffer(file), { type: "array" }); const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]); return parseCsv(csv, state, file.name); }
-  if (lower.endsWith(".pdf")) { const text = await pdfText(file); return parsePdfText(text.trim() ? text : await ocrPdf(file), state, file.name); }
-  if (/\.(png|jpe?g|webp)$/i.test(lower)) return parsePdfText(await ocr(file), state, `${file.name}-ocr`);
+  if (lower.endsWith(".pdf")) return parsePdfHybrid(file, state, options);
+  if (/\.(png|jpe?g|webp)$/i.test(lower)) return parseStatementImage(file, state, options);
   throw new Error("Formato não suportado. Selecione OFX, CSV, XLS, XLSX, PDF ou imagem.");
 }

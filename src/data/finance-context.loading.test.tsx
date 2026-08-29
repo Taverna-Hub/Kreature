@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { FinanceProvider, useFinance } from "./finance-context";
+import { MemoryFinanceRepository } from "./repository";
 
 function LoadingProbe() {
   renderCount += 1;
@@ -16,7 +17,7 @@ describe("FinanceProvider initialization", () => {
     renderCount = 0;
     render(
       <StrictMode>
-        <FinanceProvider>
+        <FinanceProvider repository={new MemoryFinanceRepository()}>
           <LoadingProbe />
         </FinanceProvider>
       </StrictMode>,

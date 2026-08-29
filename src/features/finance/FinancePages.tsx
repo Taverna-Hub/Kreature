@@ -47,7 +47,7 @@ import type {
   RecurrenceFrequency,
   ThemeMode,
 } from "@/domain/types";
-import { analyzeFile, cleanTransactionDescription } from "@/lib/importers";
+import { analyzeFile, cleanTransactionDescription, importFingerprint, type ImportAnalysis } from "@/lib/importers";
 import { fetchAssetQuote, fetchExchangeRate } from "@/lib/market";
 import { dateLabel, decimalInput, money, monthLabel } from "@/lib/format";
 import { catalogInstitution, searchInstitutionCatalog } from "@/domain/institution-catalog";
@@ -63,7 +63,7 @@ import { Page } from "@/shared/ui/Page";
 import { Tabs } from "@/shared/ui/Tabs";
 import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
-import { endLocalSession } from "@/auth/session";
+import { useAuth } from "@/auth/auth-context";
 
 const DashboardCharts = lazy(() => import("@/features/summary/DashboardCharts").then((module) => ({ default: module.DashboardCharts })));
 const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCustomizer").then((module) => ({ default: module.CharacterCustomizer })));
@@ -71,6 +71,12 @@ const ProfileCard = lazy(() => import("@/features/profile/ProfileCard").then((mo
 
 const today = () => new Date().toISOString().slice(0, 10);
 const historyMonthTones = ["violet", "teal", "amber", "rose", "sky"];
+const importCategoryFlow = (item: ImportCandidate) => {
+  if (item.kind === "income") return "income";
+  if (item.kind === "expense") return "expense";
+  try { return new Decimal(item.amount).isNegative() ? "expense" : "income"; }
+  catch { return "expense"; }
+};
 
 function CategoryImage({ image, name }: { image: Blob; name: string }) {
   const source = useObjectUrl(image);
@@ -637,7 +643,7 @@ function CategoriesView() {
           ))}
       </div>
       <section className="rules-panel" aria-labelledby="learned-rules-title">
-        <div><span className="eyebrow">Automação local</span><h3 id="learned-rules-title">Regras aprendidas</h3><p>Usadas apenas neste navegador para reconhecer a mesma descrição novamente.</p></div>
+        <div><span className="eyebrow">Automação privada</span><h3 id="learned-rules-title">Regras aprendidas</h3><p>Sincronizadas somente com a sua conta para reconhecer a mesma descrição novamente.</p></div>
         {state.classificationRules.length ? <div className="rules-list">{state.classificationRules.map((rule) => <div className="rule-row" key={rule.id}><input aria-label={`Descrição da regra ${rule.match}`} defaultValue={rule.match} onBlur={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); const match = normalizeClassificationText(event.target.value); if (!found || !match || match === found.match) return; found.match = match; found.updatedAt = now(); })} /><select aria-label={`Categoria da regra ${rule.match}`} value={rule.categoryId} onChange={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); if (found) { found.categoryId = event.target.value; found.updatedAt = now(); } })}>{state.categories.filter((category) => !category.archivedAt && category.flow === rule.kind).map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select><button aria-label={`Remover regra ${rule.match}`} onClick={() => void commit((draft) => { draft.classificationRules = draft.classificationRules.filter((item) => item.id !== rule.id); })}><Trash2 /></button></div>)}</div> : <p className="muted">As regras aparecem quando você corrige uma categoria durante uma importação ou salva um lançamento manual.</p>}
       </section>
       {open && (
@@ -660,6 +666,7 @@ function CategoriesView() {
                 color: String(data.get("color")),
                 flow: String(data.get("flow")) as Category["flow"],
                   image: file?.size ? file : editing?.image,
+                  imagePath: file?.size ? undefined : editing?.imagePath,
                   isDefault: editing?.isDefault ?? false,
                   createdAt: editing?.createdAt ?? timestamp,
                   updatedAt: timestamp,
@@ -692,16 +699,21 @@ function CategoriesView() {
   );
 }
 
-function ImportView() {
+export function ImportView() {
   const { state, commit } = useFinance();
+  const { notify } = useFeedback();
   const [candidates, setCandidates] = useState<ImportCandidate[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [validation, setValidation] = useState<ImportAnalysis["validation"]>();
+  const [busy, setBusy] = useState<string>();
   const read = async (file?: File) => {
     if (!file) return;
-    setBusy(true);
+    setCandidates([]);
+    setWarnings([]);
+    setValidation(undefined);
+    setBusy("Lendo arquivo");
     try {
-      const result = await analyzeFile(file, state);
+      const result = await analyzeFile(file, state, { onProgress: (progress) => setBusy(progress.message) });
       const currencies = [...new Set(result.candidates.map((item) => item.currency).filter((currency) => currency !== "BRL"))];
       const rates = new Map<string, string>([["BRL", "1"]]);
       const rateWarnings: string[] = [];
@@ -722,14 +734,24 @@ function ImportView() {
         };
       }));
       setWarnings([...result.warnings, ...rateWarnings]);
+      setValidation(result.validation);
     } catch (error) {
       setWarnings([error instanceof Error ? error.message : "Falha ao processar arquivo."]);
     } finally {
-      setBusy(false);
+      setBusy(undefined);
     }
   };
   const confirm = async () => {
-    const pendingForeignRate = candidates.find((item) => item.include && !item.duplicate && item.currency !== "BRL" && !item.exchangeRate);
+    const selected = candidates.filter((item) => item.include);
+    const invalid = selected.find((item) => {
+      try { return !item.date || !item.description.trim() || new Decimal(item.amount || 0).isZero(); }
+      catch { return true; }
+    });
+    if (invalid) {
+      setWarnings(["Revise os itens selecionados: data, descrição e valor são obrigatórios."]);
+      return;
+    }
+    const pendingForeignRate = candidates.find((item) => item.include && item.currency !== "BRL" && !item.exchangeRate);
     if (pendingForeignRate) {
       setWarnings([`Informe a cotação de ${pendingForeignRate.currency} para BRL antes de confirmar a importação.`]);
       return;
@@ -737,7 +759,7 @@ function ImportView() {
     await commit((draft) => {
       const createdInstitutions = new Map<string, string>();
       for (const item of candidates.filter(
-        (candidate) => candidate.include && !candidate.duplicate,
+        (candidate) => candidate.include,
       )) {
         let institutionId = item.institutionId;
         if (institutionId?.startsWith("create:")) {
@@ -776,7 +798,7 @@ function ImportView() {
           categoryId: item.categoryId,
           institutionId,
           source: "import",
-          fingerprint: item.fingerprint,
+          fingerprint: importFingerprint(institutionId, item.date, item.description, item.amount, item.kind),
           notes: `${item.externalId ? `external:${item.externalId} ` : ""}Importado por ${item.parser}`.trim(),
         });
         if (item.categoryId && (item.categoryId !== item.suggestedCategoryId || item.kind !== item.suggestedKind)) learnClassificationRule(draft, entry);
@@ -821,6 +843,8 @@ function ImportView() {
     });
     setCandidates([]);
     setWarnings([]);
+    setValidation(undefined);
+    notify(`${selected.length} movimentação(ões) importada(s) com sucesso.`);
   };
   return (
     <section className="panel">
@@ -828,19 +852,29 @@ function ImportView() {
         <FileUp />
         <h2>Importe extrato ou fatura</h2>
         <p>
-          PDF pesquisável, CSV, XLS ou XLSX. O arquivo é processado no navegador e não é armazenado.
+          PDF pesquisável ou escaneado, CSV, XLS ou XLSX. O arquivo é processado no navegador e não é armazenado.
         </p>
         <label className="button primary">
-          {busy ? "Processando..." : "Selecionar arquivo"}
+          {busy ?? "Selecionar arquivo"}
           <input
             hidden
             type="file"
             accept=".ofx,.qfx,.pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
-            disabled={busy}
-            onChange={(event) => void read(event.target.files?.[0])}
+            disabled={Boolean(busy)}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              void read(file);
+            }}
           />
         </label>
       </div>
+      {busy && <p className="import-progress" role="status">{busy}</p>}
+      {validation && validation.status !== "unavailable" && (
+        <div className={`import-validation ${validation.status}`} role={validation.status === "warning" ? "alert" : "status"}>
+          {validation.message}
+        </div>
+      )}
       {warnings.length > 0 && (
         <div className="warnings" role="alert">
           {warnings.map((warning) => (
@@ -852,12 +886,11 @@ function ImportView() {
         <>
           <div className="import-list">
             {candidates.map((item, index) => (
-              <article className={`import-row ${item.duplicate ? "duplicate" : ""}`} key={item.id}>
+              <article className={`import-row ${item.duplicate || item.similarDuplicate ? "duplicate" : ""} ${item.needsReview ? "needs-review" : ""}`} key={item.id}>
                 <input
                   aria-label="Incluir"
                   type="checkbox"
                   checked={item.include}
-                  disabled={item.duplicate}
                   onChange={(event) =>
                     setCandidates((current) =>
                       current.map((value, i) =>
@@ -873,6 +906,7 @@ function ImportView() {
                     onChange={(date) => setCandidates((current) => current.map((value, i) => i === index ? { ...value, date } : value))}
                   />
                   <input
+                    aria-label="Descrição"
                     value={item.description}
                     onChange={(event) =>
                       setCandidates((current) =>
@@ -883,6 +917,8 @@ function ImportView() {
                     }
                   />
                   <input
+                    aria-label="Valor"
+                    inputMode="decimal"
                     value={item.amount}
                     onChange={(event) =>
                       setCandidates((current) =>
@@ -902,11 +938,19 @@ function ImportView() {
                   {item.currency !== "BRL" && <input aria-label={`Cotação ${item.currency} para BRL`} inputMode="decimal" placeholder="Cotação em BRL" value={item.exchangeRate ?? ""} onChange={(event) => setCandidates((current) => current.map((value, i) => i === index ? { ...value, exchangeRate: decimalInput(event.target.value) } : value))} />}
                   <select
                     value={item.kind}
+                    aria-label="Tipo de movimentação"
                     onChange={(event) =>
                       setCandidates((current) =>
-                        current.map((value, i) =>
-                          i === index ? { ...value, kind: event.target.value as EntryKind } : value,
-                        ),
+                        current.map((value, i) => {
+                          if (i !== index) return value;
+                          const kind = event.target.value as EntryKind;
+                          let amount = value.amount;
+                          try {
+                            const absolute = new Decimal(value.amount || 0).abs();
+                            amount = kind === "income" ? absolute.toString() : kind === "expense" || kind === "credit_payment" || kind === "investment" ? absolute.negated().toString() : value.amount;
+                          } catch { /* A validação antes da confirmação exibirá o erro. */ }
+                          return { ...value, kind, amount, categoryId: undefined };
+                        }),
                       )
                     }
                   >
@@ -923,6 +967,7 @@ function ImportView() {
                   </select>
                   <select
                     value={item.categoryId ?? ""}
+                    aria-label="Categoria"
                     onChange={(event) =>
                       setCandidates((current) =>
                         current.map((value, i) =>
@@ -935,7 +980,7 @@ function ImportView() {
                   >
                     <option value="">Sem categoria</option>
                     {state.categories
-                      .filter((value) => !value.archivedAt && value.flow === (new Decimal(item.amount).isNegative() ? "expense" : "income"))
+                      .filter((value) => !value.archivedAt && value.flow === importCategoryFlow(item))
                       .map((value) => (
                         <option value={value.id} key={value.id}>
                           {value.name}
@@ -944,6 +989,7 @@ function ImportView() {
                   </select>
                   <select
                     value={item.institutionId ?? ""}
+                    aria-label="Conta de destino"
                     onChange={(event) =>
                       setCandidates((current) =>
                         current.map((value, i) =>
@@ -969,7 +1015,8 @@ function ImportView() {
                 </div>
                 <div className="confidence">
                   <span>{Math.round(item.confidence * 100)}%</span>
-                  <small>{item.duplicate ? "Possível duplicata" : item.reason}</small>
+                  {item.page && <small>Página {item.page} · {item.extractionSource === "ocr" ? "OCR" : "texto do PDF"}</small>}
+                  <small>{item.duplicate ? "Duplicata provável — desmarcada por segurança" : item.similarDuplicate ? "Movimentação parecida já existe — revise antes de incluir" : item.reason}</small>
                   {item.kind === "investment" && (
                     <label>
                       <input
@@ -998,13 +1045,14 @@ function ImportView() {
               onClick={() => {
                 setCandidates([]);
                 setWarnings([]);
+                setValidation(undefined);
               }}
             >
               Cancelar importação
             </Button>
             <Button
               onClick={() => void confirm()}
-              disabled={!candidates.some((item) => item.include && !item.duplicate)}
+              disabled={!candidates.some((item) => item.include)}
             >
               Confirmar importação
             </Button>
@@ -2012,6 +2060,7 @@ function PlanningDialog({
 
 export function ProfilePage() {
   const { state, commit } = useFinance();
+  const { signOut } = useAuth();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -2026,14 +2075,14 @@ export function ProfilePage() {
         {!editing && <article className="panel profile-copy">
           <span className="eyebrow">Kreature atual</span>
           <h2>Um perfil com a sua cara</h2>
-          <p>Personalize formato, cor, expressão, acessórios, moldura, fundo e identidade. As alterações ficam somente neste navegador.</p>
+          <p>Personalize formato, cor, expressão, acessórios, moldura, fundo e identidade. As alterações acompanham sua conta.</p>
           <Button onClick={() => setEditing(true)}><Sparkles />Editar personagem</Button>
           <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => void commit((draft) => { draft.theme = mode; })} />
           <section className="profile-session" aria-labelledby="session-title">
             <div>
               <span className="eyebrow">Sessão</span>
               <h2 id="session-title">Acesso neste dispositivo</h2>
-              <p>Sair fecha apenas esta sessão. Seus dados financeiros locais permanecem aqui.</p>
+              <p>Sair encerra o acesso neste dispositivo. Seus dados permanecem protegidos na sua conta.</p>
             </div>
             <Button variant="secondary" onClick={() => setSignOutOpen(true)}><LogOut />Sair</Button>
           </section>
@@ -2042,13 +2091,10 @@ export function ProfilePage() {
         </section>
       </Suspense>
       {signOutOpen && <Modal title="Sair do Kreature" onClose={() => setSignOutOpen(false)}>
-        <p className="modal-copy">Você voltará para a tela de entrada. Seus dados financeiros locais não serão apagados.</p>
+        <p className="modal-copy">Você voltará para a tela de entrada. Seus dados não serão apagados.</p>
         <div className="form-actions">
           <Button variant="secondary" onClick={() => setSignOutOpen(false)}>Cancelar</Button>
-          <Button variant="danger" onClick={() => {
-            endLocalSession();
-            void navigate({ to: "/login" });
-          }}><LogOut />Sair agora</Button>
+          <Button variant="danger" onClick={() => { void signOut().then(() => navigate({ to: "/login" })); }}><LogOut />Sair agora</Button>
         </div>
       </Modal>}
     </Page>
