@@ -14,6 +14,7 @@ import {
   Sun,
   Trash2,
   TrendingUp,
+  Undo2,
   WalletCards,
 } from "lucide-react";
 import Decimal from "decimal.js";
@@ -21,6 +22,9 @@ import { useFinance } from "@/data/finance-context";
 import { now, uid } from "@/domain/defaults";
 import {
   institutionBalance,
+  investmentContribution,
+  investmentWithdrawal,
+  movementsFor,
   reconcileInstitution,
   recordEntry,
   removeEntry,
@@ -32,7 +36,8 @@ import {
 import { buildSummary, monthlyHistory } from "@/domain/queries";
 import { importedRdbPositionKey, investmentDisplayGroups, investmentMovementAmount, rdbPositionKey } from "@/domain/investment-groups";
 import { learnClassificationRule, normalizeClassificationText } from "@/domain/classification";
-import { editRecurrence, occurrencesFor, settleOccurrence } from "@/domain/recurrence";
+import { suggestInternalTransfer } from "@/domain/internal-transfers";
+import { editRecurrence, occurrencesFor, settleOccurrence, undoOccurrence } from "@/domain/recurrence";
 import type {
   Category,
   CreditCard,
@@ -76,6 +81,9 @@ const ProfileCard = lazy(() => import("@/features/profile/ProfileCard").then((mo
 const today = () => new Date().toISOString().slice(0, 10);
 const emptyOption = (label: string) => [["", label]] as const;
 const entryFormKindOptions = [
+  ["internal_transfer", "Transferência entre minhas contas"],
+  ["investment_contribution", "Aplicar em investimento"],
+  ["investment_withdrawal", "Resgatar investimento"],
   ["income", "Entrada"],
   ["expense", "Despesa"],
   ["investment", "Economia / aplicação"],
@@ -86,6 +94,7 @@ const entryFormKindOptions = [
   ["credit_payment", "Pagamento de fatura"],
 ] as const;
 const importKindOptions = [
+  ["internal_transfer", "Transferência interna"],
   ["income", "Entrada"],
   ["expense", "Despesa"],
   ["investment", "Investimento"],
@@ -263,10 +272,15 @@ export function LaunchesPage() {
   const [dialog, setDialog] = useState(false);
   const [pendingDeletion, setPendingDeletion] = useState<LedgerEntry>();
   const [search, setSearch] = useState("");
+  const movementKinds = new Map(movementsFor(state).map((movement) => [movement.id, movement.kind]));
   const entries = state.entries
+    .filter((entry, index, all) => {
+      const group = entry.financialMovementId ?? entry.transferGroupId;
+      return !group || all.findIndex((candidate) => (candidate.financialMovementId ?? candidate.transferGroupId) === group) === index;
+    })
     .filter((entry) => normalizeText(entry.description).includes(normalizeText(search)))
     .sort((a, b) => b.date.localeCompare(a.date));
-  const save = async (input: EntryInput & { installments?: number }, toInstitutionId?: string) => {
+  const save = async (input: EntryInput & { installments?: number }, toInstitutionId?: string, investmentId?: string) => {
     await commit((draft) => {
       if (input.kind === "card_purchase" && input.creditCardId) {
         recordCardPurchase(draft, {
@@ -281,7 +295,7 @@ export function LaunchesPage() {
         });
       } else if (input.kind === "credit_payment" && input.creditCardId && input.invoiceKey && input.institutionId) {
         payCardInvoice(draft, { cardId: input.creditCardId, invoiceKey: input.invoiceKey, institutionId: input.institutionId, date: input.date, notes: input.notes });
-      } else if (input.kind === "transfer" && input.institutionId && toInstitutionId)
+      } else if ((input.kind === "transfer" || input.kind === "internal_transfer") && input.institutionId && toInstitutionId)
         transfer(draft, {
           fromInstitutionId: input.institutionId,
           toInstitutionId,
@@ -289,6 +303,10 @@ export function LaunchesPage() {
           date: input.date,
           description: input.description,
         });
+      else if (input.kind === "investment_contribution" && input.institutionId && investmentId)
+        investmentContribution(draft, { fromInstitutionId: input.institutionId, investmentId, amount: input.amount, date: input.date, description: input.description });
+      else if (input.kind === "investment_withdrawal" && input.institutionId && investmentId)
+        investmentWithdrawal(draft, { toInstitutionId: input.institutionId, investmentId, amount: input.amount, date: input.date, description: input.description });
       else if (editing) updateEntry(draft, editing.id, input);
       else recordEntry(draft, input);
     });
@@ -359,7 +377,7 @@ export function LaunchesPage() {
                         {entry.ignoredFromAnalytics && <small>Fora dos totais</small>}
                       </td>
                       <td data-label="Tipo">
-                        <span className={`badge ${entry.kind === "transfer" && normalizeText(entry.description).includes("pix") ? "pix" : entry.kind}`}>{entryKindLabel(entry.kind === "transfer" && normalizeText(entry.description).includes("pix") ? "pix" : entry.kind)}</span>
+                        <span className={`badge ${movementKinds.get(entry.financialMovementId ?? entry.transferGroupId ?? entry.id) ?? entry.kind}`}>{entryKindLabel((movementKinds.get(entry.financialMovementId ?? entry.transferGroupId ?? entry.id) ?? entry.kind) as EntryKind)}</span>
                       </td>
                       <td data-label="Instituição">
                         {state.institutions.find((item) => item.id === entry.institutionId)?.name ??
@@ -367,9 +385,9 @@ export function LaunchesPage() {
                       </td>
                       <td
                         data-label="Valor"
-                        className={new Decimal(entry.amount).isPositive() ? "positive" : "negative"}
+                        className={["internal_transfer", "investment_contribution", "investment_withdrawal"].includes(movementKinds.get(entry.financialMovementId ?? entry.transferGroupId ?? entry.id) ?? entry.kind) ? "" : new Decimal(entry.amount).isPositive() ? "positive" : "negative"}
                       >
-                        {money(entry.amount, entry.currency)}
+                        {money(["internal_transfer", "investment_contribution", "investment_withdrawal"].includes(movementKinds.get(entry.financialMovementId ?? entry.transferGroupId ?? entry.id) ?? entry.kind) ? new Decimal(entry.amount).abs().toString() : entry.amount, entry.currency)}
                       </td>
                       <td className="row-actions">
                         {!entry.transferGroupId && (
@@ -431,11 +449,12 @@ function EntryForm({
 }: {
   state: FinanceState;
   entry?: LedgerEntry;
-  onSave: (input: EntryInput & { installments?: number }, toInstitutionId?: string) => Promise<void>;
+  onSave: (input: EntryInput & { installments?: number }, toInstitutionId?: string, investmentId?: string) => Promise<void>;
 }) {
   const [kind, setKind] = useState<EntryKind>(entry?.kind ?? "expense");
   const [date, setDate] = useState(entry?.date ?? today());
   const [toInstitutionId, setToInstitutionId] = useState("");
+  const [investmentId, setInvestmentId] = useState(entry?.investmentId ?? "");
   const [creditCardId, setCreditCardId] = useState(entry?.creditCardId ?? "");
   const invoices = creditCardId ? cardInvoices(state, creditCardId).filter((item) => !item.paidEntryId) : [];
   return (
@@ -463,6 +482,7 @@ function EntryForm({
             notes: String(data.get("notes") || "") || undefined,
           },
           toInstitutionId,
+          investmentId || undefined,
         );
       }}
     >
@@ -497,7 +517,7 @@ function EntryForm({
           items={[...emptyOption("Sem instituição"), ...institutionOptions(state.institutions, true)]}
         />
       </Field>
-      {kind === "transfer" && (
+      {(kind === "transfer" || kind === "internal_transfer") && (
         <Field label="Instituição de destino">
           <CustomSelect
             label="Instituição de destino"
@@ -505,6 +525,17 @@ function EntryForm({
             value={toInstitutionId}
             onChange={setToInstitutionId}
             items={[...emptyOption("Selecione"), ...institutionOptions(state.institutions)]}
+          />
+        </Field>
+      )}
+      {(kind === "investment_contribution" || kind === "investment_withdrawal") && (
+        <Field label="Investimento">
+          <CustomSelect
+            label="Investimento"
+            required
+            value={investmentId}
+            onChange={setInvestmentId}
+            items={[...emptyOption("Selecione"), ...state.investments.filter((item) => !item.archivedAt).map((item) => [item.id, item.name] as const)]}
           />
         </Field>
       )}
@@ -532,7 +563,7 @@ function EntryForm({
           />
         </Field>
       )}
-      {kind !== "transfer" && kind !== "credit_payment" && <Field label="Categoria">
+      {kind !== "transfer" && kind !== "internal_transfer" && kind !== "investment_contribution" && kind !== "investment_withdrawal" && kind !== "credit_payment" && <Field label="Categoria">
         <CustomSelect
           label="Categoria"
           name="categoryId"
@@ -862,10 +893,12 @@ export function ImportView() {
     catch { return true; }
   });
   const missingRate = selected.filter((item) => item.currency !== "BRL" && !item.exchangeRate);
+  const missingTransferCounterparty = selected.filter((item) => item.kind === "internal_transfer" && !item.counterpartyInstitutionId);
   const blockers = [
     ...(selected.length ? [] : ["Selecione ao menos uma movimentação para importar."]),
     ...(incomplete.length ? [`${incomplete.length} movimentação(ões) sem data, descrição ou valor: ${namesOf(incomplete)}.`] : []),
     ...(missingRate.length ? [`Informe a cotação em BRL de ${[...new Set(missingRate.map((item) => item.currency))].join(", ")} nas linhas destacadas.`] : []),
+    ...(missingTransferCounterparty.length ? [`Selecione a outra conta em ${missingTransferCounterparty.length} transferência(s) interna(s).`] : []),
     ...(document?.requiresCard && !creditCardId ? ["Selecione ou cadastre o cartão desta importação antes de continuar."] : []),
     ...(document && state.importedDocuments.some((item) => item.contentHash === document.contentHash) ? ["Este documento já foi importado."] : []),
   ];
@@ -908,11 +941,11 @@ export function ImportView() {
       }));
       setCandidates(result.candidates.map((item) => {
         const known = state.institutions.find((institution) => institution.catalogId === item.detectedInstitutionId && !institution.archivedAt);
-        return {
+        return suggestInternalTransfer(state, {
           ...item,
           institutionId: item.institutionId ?? known?.id ?? (item.detectedInstitutionId ? `create:${item.detectedInstitutionId}` : undefined),
           exchangeRate: rates.get(item.currency),
-        };
+        });
       }));
       setWarnings([...result.warnings, ...rateWarnings]);
       setValidation(result.validation);
@@ -960,6 +993,36 @@ export function ImportView() {
             });
             createdInstitutions.set(catalogId, institutionId);
           }
+        }
+        if (item.createInvestment && item.kind === "investment" && institutionId) {
+          const amount = new Decimal(item.amount).abs().toString();
+          const positionKey = rdbPositionKey(institutionId, item.description);
+          let investment = positionKey ? draft.investments.find((value) => importedRdbPositionKey(value) === positionKey) : undefined;
+          if (!investment) {
+            investment = { id: uid("investment"), institutionId, type: "other" as const, name: item.description, quantity: "0", averagePrice: "0", investedAmount: "0", currentPrice: "0", currentValue: "0", dividends: "0", currency: item.currency, quoteStatus: "manual" as const, quoteMessage: "Criado pela importação", createdAt: now(), updatedAt: now() };
+            draft.investments.push(investment);
+          }
+          const result = investmentContribution(draft, { fromInstitutionId: institutionId, investmentId: investment.id, amount, date: item.date, description: item.description });
+          Object.assign(result.movement, { source: "import" as const, importedDocumentId, fingerprint: importFingerprint(institutionId, item.date, item.description, item.amount, item.kind) });
+          Object.assign(result.debit, { source: "import" as const, importedDocumentId, fingerprint: result.movement.fingerprint, notes: `${item.externalId ? `external:${item.externalId} ` : ""}Importado por ${item.parser}`.trim() });
+          continue;
+        }
+        if (item.kind === "internal_transfer" && institutionId && item.counterpartyInstitutionId) {
+          const isOutflow = new Decimal(item.amount).isNegative();
+          const [debit, credit] = transfer(draft, {
+            fromInstitutionId: isOutflow ? institutionId : item.counterpartyInstitutionId,
+            toInstitutionId: isOutflow ? item.counterpartyInstitutionId : institutionId,
+            amount: item.amount,
+            date: item.date,
+            description: item.description,
+          });
+          const observed = isOutflow ? debit : credit;
+          const pending = isOutflow ? credit : debit;
+          Object.assign(observed, { source: "import" as const, importedDocumentId, fingerprint: importFingerprint(institutionId, item.date, item.description, item.amount, item.kind), notes: `${item.externalId ? `external:${item.externalId} ` : ""}Importado por ${item.parser}`.trim() });
+          pending.pendingReconciliation = true;
+          const movement = draft.financialMovements.find((value) => value.id === observed.financialMovementId);
+          if (movement) Object.assign(movement, { source: "import" as const, importedDocumentId, fingerprint: observed.fingerprint, notes: observed.notes });
+          continue;
         }
         const institution = draft.institutions.find((value) => value.id === institutionId);
         const entry = recordEntry(draft, {
@@ -1168,6 +1231,14 @@ export function ImportView() {
                     onChange={(institutionId) => patchCandidate(index, { institutionId: institutionId || undefined })}
                     items={importInstitutionOptions}
                   />
+                  {item.kind === "internal_transfer" && (
+                    <CustomSelect
+                      label="Outra conta própria"
+                      value={item.counterpartyInstitutionId ?? ""}
+                      onChange={(counterpartyInstitutionId) => patchCandidate(index, { counterpartyInstitutionId: counterpartyInstitutionId || undefined })}
+                      items={[...emptyOption("Selecione para confirmar"), ...institutionOptions(state.institutions)]}
+                    />
+                  )}
                 </div>
                 <div className="confidence">
                   <span>{Math.round(item.confidence * 100)}%</span>
@@ -1808,6 +1879,12 @@ export function InvestmentsPage() {
               const index = draft.investments.findIndex((item) => item.id === record.id);
               if (index >= 0) draft.investments[index] = record;
               else {
+                if (createEntry && record.institutionId) {
+                  const initialAmount = record.investedAmount;
+                  draft.investments.push({ ...record, quantity: "0", averagePrice: "0", investedAmount: "0", currentPrice: "0", currentValue: "0", dividends: "0" });
+                  investmentContribution(draft, { fromInstitutionId: record.institutionId, investmentId: record.id, amount: initialAmount, date: today(), description: `Aplicação em ${record.name}` });
+                  return;
+                }
                 draft.investments.push(record);
                 if (createEntry && record.institutionId)
                   recordEntry(draft, {
@@ -1961,9 +2038,11 @@ function InvestmentDialog({
 
 export function PlanningPage() {
   const { state, commit } = useFinance();
+  const { notify } = useFeedback();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PlannedEntry>();
   const [editingDate, setEditingDate] = useState<string>();
+  const [completing, setCompleting] = useState<ReturnType<typeof occurrencesFor>[number]>();
   const rangeEnd = new Date();
   rangeEnd.setFullYear(rangeEnd.getFullYear() + 1);
   const occurrences = state.plannedEntries
@@ -2027,11 +2106,17 @@ export function PlanningPage() {
                   {!item.settled && (
                     <IconButton
                       label="Marcar como realizado"
-                      onClick={() =>
-                        void commit((draft) => settleOccurrence(draft, item.planId, item.date))
-                      }
+                      onClick={() => setCompleting(item)}
                     >
                       <Check />
+                    </IconButton>
+                  )}
+                  {item.settled && (
+                    <IconButton
+                      label="Desfazer conclusÃ£o"
+                      onClick={() => void commit((draft) => undoOccurrence(draft, item.planId, item.date)).catch((error) => notify(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel desfazer a conclusÃ£o.", "error"))}
+                    >
+                      <Undo2 />
                     </IconButton>
                   )}
                   <IconButton
@@ -2108,7 +2193,49 @@ export function PlanningPage() {
           }
         />
       )}
+      {completing && <CompleteOccurrenceDialog occurrence={completing} onClose={() => setCompleting(undefined)} onConfirm={async (effectiveDate, effectiveAmount) => {
+        try {
+          await commit((draft) => settleOccurrence(draft, completing.planId, completing.date, { effectiveDate, effectiveAmount }));
+          notify("Planejamento concluÃ­do.");
+          setCompleting(undefined);
+        } catch (error) {
+          notify(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel concluir o planejamento.", "error");
+        }
+      }} />}
     </Page>
+  );
+}
+
+function CompleteOccurrenceDialog({
+  occurrence,
+  onClose,
+  onConfirm,
+}: {
+  occurrence: ReturnType<typeof occurrencesFor>[number];
+  onClose: () => void;
+  onConfirm: (effectiveDate: string, effectiveAmount: string) => Promise<void>;
+}) {
+  const [effectiveDate, setEffectiveDate] = useState(today());
+  const [effectiveAmount, setEffectiveAmount] = useState(occurrence.amount);
+  return (
+    <Modal title="Concluir planejamento" onClose={onClose}>
+      <form className="form-grid" onSubmit={(event) => {
+        event.preventDefault();
+        void onConfirm(effectiveDate, decimalInput(effectiveAmount));
+      }}>
+        <p className="form-hint full">Previsto: {dateLabel(occurrence.date)} · {money(occurrence.amount)}. O previsto serÃ¡ preservado para comparaÃ§Ã£o.</p>
+        <Field label="Data efetiva">
+          <DatePicker value={effectiveDate} onChange={setEffectiveDate} label="Data efetiva" />
+        </Field>
+        <Field label="Valor efetivo">
+          <input required inputMode="decimal" value={effectiveAmount} onChange={(event) => setEffectiveAmount(event.target.value)} />
+        </Field>
+        <div className="form-actions full">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button type="submit">Concluir em {dateLabel(effectiveDate)}</Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -2366,6 +2493,10 @@ const normalizeText = (value: string) =>
     .toLowerCase();
 const entryKindLabel = (kind: EntryKind) =>
   ({
+    internal_transfer: "Transferência interna",
+    investment_contribution: "Aplicação",
+    investment_withdrawal: "Resgate",
+    investment_income: "Rendimento de investimento",
     income: "Entrada",
     expense: "Despesa",
     investment: "Aplicação",

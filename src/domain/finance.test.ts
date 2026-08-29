@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { emptyFinanceState } from "./defaults";
 import {
   institutionBalance,
+  investmentContribution,
+  investmentIncome,
+  investmentWithdrawal,
   reconcileInstitution,
   recordEntry,
   removeEntry,
@@ -9,7 +12,7 @@ import {
   updateEntry,
 } from "./ledger";
 import { buildSummary, monthlyHistory } from "./queries";
-import { editRecurrence, occurrencesFor, settleOccurrence } from "./recurrence";
+import { editRecurrence, occurrencesFor, settleOccurrence, undoOccurrence } from "./recurrence";
 
 const institution = (id: string, openingBalance = "1000") => ({
   id,
@@ -20,6 +23,45 @@ const institution = (id: string, openingBalance = "1000") => ({
   exchangeRate: "1",
   createdAt: "2026-01-01",
   updatedAt: "2026-01-01",
+});
+
+const investment = (id: string, currentValue = "0", investedAmount = "0") => ({
+  id, type: "cash_box" as const, name: id, quantity: currentValue === "0" ? "0" : "1",
+  averagePrice: investedAmount, investedAmount, currentPrice: currentValue, currentValue, dividends: "0",
+  currency: "BRL", quoteStatus: "manual" as const, createdAt: "2026-01-01", updatedAt: "2026-01-01",
+});
+
+describe("movimentos patrimoniais", () => {
+  it("trata aporte como troca patrimonial, sem despesa", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank", "5000"));
+    state.investments.push(investment("cdb"));
+    investmentContribution(state, { fromInstitutionId: "bank", investmentId: "cdb", amount: "1000", date: "2026-08-01" });
+    expect(institutionBalance(state, "bank")).toBe("4000");
+    expect(state.investments[0]).toMatchObject({ currentValue: "1000", investedAmount: "1000" });
+    expect(buildSummary(state, { mode: "all" })).toMatchObject({ expenses: "0", income: "0", available: "4000", invested: "1000" });
+  });
+
+  it("separa principal e rendimento no resgate pelo custo mÃ©dio", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank", "0"));
+    state.investments.push(investment("cdb", "1100", "1000"));
+    const result = investmentWithdrawal(state, { toInstitutionId: "bank", investmentId: "cdb", amount: "1100", date: "2026-08-02" });
+    expect(result).toMatchObject({ principal: "1000", income: "100" });
+    expect(institutionBalance(state, "bank")).toBe("1100");
+    expect(buildSummary(state, { mode: "all" })).toMatchObject({ income: "100", expenses: "0", available: "1100", invested: "0" });
+  });
+
+  it("reconhece rendimento em conta ou reinvestido", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank", "0"));
+    state.investments.push(investment("cdb", "1000", "1000"));
+    investmentIncome(state, { investmentId: "cdb", toInstitutionId: "bank", amount: "50", date: "2026-08-03" });
+    investmentIncome(state, { investmentId: "cdb", reinvest: true, amount: "25", date: "2026-08-04" });
+    expect(institutionBalance(state, "bank")).toBe("50");
+    expect(state.investments[0]).toMatchObject({ currentValue: "1025", dividends: "75" });
+    expect(buildSummary(state, { mode: "all" }).income).toBe("75");
+  });
 });
 
 describe("FinanceLedger", () => {
@@ -256,5 +298,30 @@ describe("recorrências", () => {
     );
     expect(state.plannedEntries.find((item) => item.id === plan.id)?.endDate).toBe("2026-03-09");
     expect(split).toMatchObject({ startDate: "2026-03-10", amount: "3500" });
+  });
+});
+
+describe("realizaÃ§Ã£o planejada", () => {
+  it("preserva previsto, registra data efetiva e desfaz o movimento automÃ¡tico", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    state.plannedEntries.push({ id: "rent-effective", startDate: "2026-08-30", description: "Aluguel", amount: "1500", kind: "income", institutionId: "bank", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    const entry = settleOccurrence(state, "rent-effective", "2026-08-30", { effectiveDate: "2026-08-29", effectiveAmount: "1490" });
+    const exception = state.plannedEntries[0].exceptions[0];
+    expect(entry.date).toBe("2026-08-29");
+    expect(exception).toMatchObject({ plannedDate: "2026-08-30", plannedAmount: "1500", effectiveDate: "2026-08-29", effectiveAmount: "1490" });
+    undoOccurrence(state, "rent-effective", "2026-08-30");
+    expect(state.entries).toHaveLength(0);
+    expect(state.plannedEntries[0].exceptions[0].settledEntryId).toBeUndefined();
+  });
+
+  it("bloqueia undo quando a realizaÃ§Ã£o foi editada", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    state.plannedEntries.push({ id: "protected", startDate: "2026-08-20", description: "Conta", amount: "10", kind: "expense", institutionId: "bank", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    const entry = settleOccurrence(state, "protected", "2026-08-20", { effectiveDate: "2026-08-20" });
+    updateEntry(state, entry.id, { date: entry.date, description: "Conta corrigida", amount: "10", currency: "BRL", kind: "expense", institutionId: "bank" });
+    expect(() => undoOccurrence(state, "protected", "2026-08-20")).toThrow("NÃ£o Ã© possÃ­vel desfazer");
+    expect(state.entries).toHaveLength(1);
   });
 });

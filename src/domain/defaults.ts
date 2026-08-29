@@ -47,6 +47,7 @@ export function emptyFinanceState(): FinanceState {
     classificationRules: [],
     institutions: [],
     entries: [],
+    financialMovements: [],
     investments: [],
     creditCards: [],
     cardPurchases: [],

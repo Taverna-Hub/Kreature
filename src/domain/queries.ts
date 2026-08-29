@@ -1,122 +1,86 @@
 import Decimal from "decimal.js";
-import type { FinanceState, LedgerEntry, PeriodFilter, Summary } from "./types";
-import { institutionBalance } from "./ledger";
+import type { FinanceState, FinancialMovement, LedgerEntry, PeriodFilter, Summary } from "./types";
+import { entriesForMovement, institutionBalance, movementKindFromEntry, movementsFor } from "./ledger";
 
 export function matchesPeriod(date: string, filter: PeriodFilter): boolean {
   if (filter.mode === "all") return true;
   const value = date.slice(0, 10);
-  if (filter.mode === "custom")
-    return (
-      (!filter.startDate || value >= filter.startDate) &&
-      (!filter.endDate || value <= filter.endDate)
-    );
+  if (filter.mode === "custom") return (!filter.startDate || value >= filter.startDate) && (!filter.endDate || value <= filter.endDate);
   const parsed = new Date(`${value}T12:00:00`);
   if (filter.mode === "year") return parsed.getFullYear() === filter.year;
   return parsed.getFullYear() === filter.year && parsed.getMonth() + 1 === filter.month;
 }
 
-const included = (entry: LedgerEntry, includeInternal: boolean) =>
-  includeInternal || !entry.ignoredFromAnalytics;
+const categoryFor = (state: FinanceState, categoryId?: string) =>
+  state.categories.find((category) => category.id === categoryId && !category.archivedAt);
 
-const excludedFromCashflow = new Set(["transfer", "investment", "reserve", "credit_payment"]);
-const categoryFor = (state: FinanceState, entry: LedgerEntry) =>
-  state.categories.find((category) => category.id === entry.categoryId && !category.archivedAt);
+/** Analytics use economic nature, never the sign of an arbitrary transfer leg. */
+export const isIncomeMovement = (movement: FinancialMovement) =>
+  movement.kind === "income" || movement.kind === "investment_income";
+export const isExpenseMovement = (movement: FinancialMovement) =>
+  movement.kind === "expense" || movement.kind === "card_purchase" || movement.kind === "card_fee" || movement.kind === "card_interest";
 
+/** Compatibility API for existing classification and card callers. */
 export function isAnalyticExpense(state: FinanceState, entry: LedgerEntry) {
-  const category = categoryFor(state, entry);
-  return new Decimal(entry.brlAmount).isNegative() && !excludedFromCashflow.has(entry.kind) && category?.flow === "expense";
+  const category = categoryFor(state, entry.categoryId);
+  const kind = movementKindFromEntry(entry, category?.flow);
+  return isExpenseMovement({ kind } as FinancialMovement);
 }
 
 export function isAnalyticIncome(state: FinanceState, entry: LedgerEntry) {
-  const category = categoryFor(state, entry);
-  return new Decimal(entry.brlAmount).isPositive() && !excludedFromCashflow.has(entry.kind) && (entry.kind === "income" || category?.flow === "income");
+  const category = categoryFor(state, entry.categoryId);
+  const kind = movementKindFromEntry(entry, category?.flow);
+  return isIncomeMovement({ kind } as FinancialMovement);
 }
 
-export function buildSummary(
-  state: FinanceState,
-  filter: PeriodFilter,
-  includeInternal = false,
-): Summary {
-  const entries = state.entries.filter(
-    (item) => matchesPeriod(item.date, filter) && included(item, includeInternal),
+export function buildSummary(state: FinanceState, filter: PeriodFilter, _includeInternal = false): Summary {
+  const movements = movementsFor(state).filter((item) => matchesPeriod(item.date, filter));
+  const income = movements.filter(isIncomeMovement).reduce((sum, item) => sum.plus(item.brlAmount), new Decimal(0));
+  const expenses = movements.filter(isExpenseMovement).reduce((sum, item) => sum.plus(item.brlAmount), new Decimal(0));
+  const available = state.institutions.filter((item) => !item.archivedAt).reduce(
+    (sum, item) => sum.plus(new Decimal(institutionBalance(state, item.id)).mul(item.exchangeRate)), new Decimal(0),
   );
-  const income = entries
-    .filter((item) => isAnalyticIncome(state, item))
-    .reduce((sum, item) => sum.plus(item.brlAmount), new Decimal(0));
-  const expenses = entries
-    .filter((item) => isAnalyticExpense(state, item))
-    .reduce((sum, item) => sum.plus(new Decimal(item.brlAmount).abs()), new Decimal(0));
-  const available = state.institutions
-    .filter((item) => !item.archivedAt)
-    .reduce(
-      (sum, item) =>
-        sum.plus(new Decimal(institutionBalance(state, item.id)).mul(item.exchangeRate)),
-      new Decimal(0),
-    );
-  const invested = state.investments
-    .filter((item) => !item.archivedAt)
-    .reduce((sum, item) => {
-      const institution = state.institutions.find(
-        (candidate) => candidate.id === item.institutionId,
-      );
-      const rate =
-        item.currency === "BRL" ? new Decimal(1) : new Decimal(institution?.exchangeRate ?? 0);
-      return sum.plus(new Decimal(item.currentValue).mul(rate));
-    }, new Decimal(0));
+  const invested = state.investments.filter((item) => !item.archivedAt).reduce((sum, item) => {
+    const institution = state.institutions.find((candidate) => candidate.id === item.institutionId);
+    const rate = item.currency === "BRL" ? new Decimal(1) : new Decimal(institution?.exchangeRate ?? 0);
+    return sum.plus(new Decimal(item.currentValue).mul(rate));
+  }, new Decimal(0));
   const categoryMap = new Map<string, Decimal>();
-  entries
-    .filter((item) => isAnalyticExpense(state, item))
-    .forEach((item) => {
-      const key = item.categoryId ?? "uncategorized";
-      categoryMap.set(
-        key,
-        (categoryMap.get(key) ?? new Decimal(0)).plus(new Decimal(item.brlAmount).abs()),
-      );
-    });
-  const categoryTotals = [...categoryMap]
-    .map(([categoryId, amount]) => {
-      const category = state.categories.find((item) => item.id === categoryId);
-      return {
-        categoryId: categoryId === "uncategorized" ? undefined : categoryId,
-        name: category?.name ?? "Sem categoria",
-        color: category?.color ?? "#94a3b8",
-        amount: amount.toString(),
-      };
-    })
-    .sort((a, b) => new Decimal(b.amount).cmp(a.amount));
+  for (const movement of movements.filter(isExpenseMovement)) {
+    const key = movement.categoryId ?? "uncategorized";
+    categoryMap.set(key, (categoryMap.get(key) ?? new Decimal(0)).plus(movement.brlAmount));
+  }
+  const categoryTotals = [...categoryMap].map(([categoryId, amount]) => {
+    const category = categoryFor(state, categoryId);
+    return { categoryId: categoryId === "uncategorized" ? undefined : categoryId, name: category?.name ?? "Sem categoria", color: category?.color ?? "#94a3b8", amount: amount.toString() };
+  }).sort((a, b) => new Decimal(b.amount).cmp(a.amount));
+  return { expenses: expenses.toString(), income: income.toString(), available: available.toString(), invested: invested.toString(), categoryTotals };
+}
+
+function historyEntry(state: FinanceState, movement: FinancialMovement): LedgerEntry {
+  const leg = entriesForMovement(state, movement.id)[0];
+  if (leg) return { ...leg, kind: movement.kind === "internal_transfer" ? "internal_transfer" : leg.kind };
   return {
-    expenses: expenses.toString(),
-    income: income.toString(),
-    available: available.toString(),
-    invested: invested.toString(),
-    categoryTotals,
+    id: movement.id, date: movement.date, description: movement.description, amount: movement.amount,
+    brlAmount: movement.brlAmount, currency: movement.currency, kind: movement.kind === "investment_income" ? "investment_income" : "income",
+    categoryId: movement.categoryId, investmentId: movement.investmentId, creditCardId: movement.creditCardId,
+    source: movement.source, ignoredFromAnalytics: false, createdAt: movement.createdAt, updatedAt: movement.updatedAt,
   };
 }
 
+/** One history item per business event, so a transfer never appears twice. */
 export function monthlyHistory(state: FinanceState) {
   const months = new Map<string, { income: Decimal; expenses: Decimal; entries: LedgerEntry[] }>();
-  state.entries
-    .filter((item) => !item.ignoredFromAnalytics)
-    .forEach((entry) => {
-      const key = entry.date.slice(0, 7);
-      const current = months.get(key) ?? {
-        income: new Decimal(0),
-        expenses: new Decimal(0),
-        entries: [],
-      };
-      const amount = new Decimal(entry.brlAmount);
-      if (amount.isPositive()) current.income = current.income.plus(amount);
-      if (amount.isNegative()) current.expenses = current.expenses.plus(amount.abs());
-      current.entries.push(entry);
-      months.set(key, current);
-    });
-  return [...months]
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([month, value]) => ({
-      month,
-      income: value.income.toString(),
-      expenses: value.expenses.toString(),
-      balance: value.income.minus(value.expenses).toString(),
-      entries: value.entries.sort((a, b) => b.date.localeCompare(a.date)),
-    }));
+  for (const movement of movementsFor(state)) {
+    const key = movement.date.slice(0, 7);
+    const current = months.get(key) ?? { income: new Decimal(0), expenses: new Decimal(0), entries: [] };
+    if (isIncomeMovement(movement)) current.income = current.income.plus(movement.brlAmount);
+    if (isExpenseMovement(movement)) current.expenses = current.expenses.plus(movement.brlAmount);
+    current.entries.push(historyEntry(state, movement));
+    months.set(key, current);
+  }
+  return [...months].sort(([a], [b]) => b.localeCompare(a)).map(([month, value]) => ({
+    month, income: value.income.toString(), expenses: value.expenses.toString(), balance: value.income.minus(value.expenses).toString(),
+    entries: [...value.entries].sort((a, b) => b.date.localeCompare(a.date)),
+  }));
 }

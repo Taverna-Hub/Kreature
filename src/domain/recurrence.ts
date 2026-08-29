@@ -1,6 +1,6 @@
 import { addDays, addMonths, addWeeks, addYears, formatISO, parseISO, subDays } from "date-fns";
 import type { FinanceState, PlannedEntry, RecurrenceException } from "./types";
-import { recordEntry } from "./ledger";
+import { recordEntry, removeEntry } from "./ledger";
 import { now, uid } from "./defaults";
 
 const day = (date: Date) => formatISO(date, { representation: "date" });
@@ -32,6 +32,10 @@ export interface PlannedOccurrence {
   categoryId?: string;
   institutionId?: string;
   settled: boolean;
+  effectiveDate?: string;
+  effectiveAmount?: string;
+  settledMovementId?: string;
+  canUndo?: boolean;
 }
 
 export function occurrencesFor(
@@ -59,6 +63,10 @@ export function occurrencesFor(
         categoryId: exception?.categoryId ?? plan.categoryId,
         institutionId: exception?.institutionId ?? plan.institutionId,
         settled: Boolean(exception?.settledEntryId),
+        effectiveDate: exception?.effectiveDate,
+        effectiveAmount: exception?.effectiveAmount,
+        settledMovementId: exception?.settledMovementId,
+        canUndo: Boolean(exception?.settledEntryId && exception.generatedFingerprint),
       });
     }
     count += 1;
@@ -75,18 +83,27 @@ export function occurrencesFor(
   return result;
 }
 
-export function settleOccurrence(state: FinanceState, planId: string, occurrenceDate: string) {
+export function settleOccurrence(
+  state: FinanceState,
+  planId: string,
+  occurrenceDate: string,
+  realization: { effectiveDate?: string; effectiveAmount?: string } = {},
+) {
   const plan = state.plannedEntries.find((item) => item.id === planId);
   if (!plan) throw new Error("Planejamento não encontrado.");
   const occurrence = occurrencesFor(plan, occurrenceDate, occurrenceDate)[0];
   if (!occurrence) throw new Error("Ocorrência inválida.");
   const existing = state.entries.find((item) => item.plannedOccurrenceKey === occurrence.key);
   if (existing) return existing;
+  const effectiveDate = realization.effectiveDate ?? day(new Date());
+  if (effectiveDate > day(new Date())) throw new Error("A data efetiva nÃ£o pode estar no futuro.");
+  const effectiveAmount = realization.effectiveAmount ?? occurrence.amount;
+  if (Number(effectiveAmount) <= 0) throw new Error("O valor efetivo deve ser maior que zero.");
   const institution = state.institutions.find((item) => item.id === occurrence.institutionId);
   const entry = recordEntry(state, {
-    date: occurrence.date,
+    date: effectiveDate,
     description: occurrence.description,
-    amount: occurrence.amount,
+    amount: effectiveAmount,
     currency: institution?.currency ?? "BRL",
     brlRate: institution?.exchangeRate ?? "1",
     kind: occurrence.kind,
@@ -99,9 +116,58 @@ export function settleOccurrence(state: FinanceState, planId: string, occurrence
     (item) => item.date === occurrenceDate,
   ) ?? { date: occurrenceDate };
   exception.settledEntryId = entry.id;
+  exception.settledMovementId = entry.financialMovementId;
+  exception.plannedDate = occurrence.date;
+  exception.plannedDescription = occurrence.description;
+  exception.plannedAmount = occurrence.amount;
+  exception.plannedKind = occurrence.kind;
+  exception.plannedCategoryId = occurrence.categoryId;
+  exception.plannedInstitutionId = occurrence.institutionId;
+  exception.effectiveDate = effectiveDate;
+  exception.effectiveAmount = effectiveAmount;
+  exception.generatedFingerprint = plannedEntryFingerprint(entry);
   plan.exceptions = [...plan.exceptions.filter((item) => item.date !== occurrenceDate), exception];
   plan.updatedAt = now();
   return entry;
+}
+
+function plannedEntryFingerprint(entry: { id: string; date: string; description: string; amount: string; kind: string; categoryId?: string; institutionId?: string; source: string; importedDocumentId?: string }) {
+  return [entry.id, entry.date, entry.description, entry.amount, entry.kind, entry.categoryId ?? "", entry.institutionId ?? "", entry.source, entry.importedDocumentId ?? ""].join("|");
+}
+
+/**
+ * Undo is deliberately strict. A planned realization can disappear only when it
+ * is still the exact automatic movement; imported, reconciled or edited data
+ * remains intact and the user gets a deterministic explanation.
+ */
+export function undoOccurrence(state: FinanceState, planId: string, occurrenceDate: string) {
+  const plan = state.plannedEntries.find((item) => item.id === planId);
+  if (!plan) throw new Error("Planejamento nÃ£o encontrado.");
+  const exception = plan.exceptions.find((item) => item.date === occurrenceDate);
+  if (!exception?.settledEntryId) throw new Error("Esta ocorrÃªncia ainda nÃ£o foi concluÃ­da.");
+  const entry = state.entries.find((item) => item.id === exception.settledEntryId);
+  const movement = entry?.financialMovementId
+    ? state.financialMovements.find((item) => item.id === entry.financialMovementId)
+    : undefined;
+  if (!entry || !movement) throw new Error("A movimentaÃ§Ã£o realizada nÃ£o estÃ¡ mais disponÃ­vel para desfazer.");
+  const isUntouched =
+    entry.source === "planned" &&
+    movement.source === "planned" &&
+    !entry.importedDocumentId &&
+    !movement.importedDocumentId &&
+    exception.generatedFingerprint === plannedEntryFingerprint(entry) &&
+    state.entries.filter((item) => item.financialMovementId === movement.id).length === 1;
+  if (!isUntouched)
+    throw new Error("NÃ£o Ã© possÃ­vel desfazer: a movimentaÃ§Ã£o realizada foi editada, conciliada ou vinculada a outro registro.");
+  removeEntry(state, entry.id);
+  Object.assign(exception, {
+    settledEntryId: undefined,
+    settledMovementId: undefined,
+    effectiveDate: undefined,
+    effectiveAmount: undefined,
+    generatedFingerprint: undefined,
+  });
+  plan.updatedAt = now();
 }
 
 export function editRecurrence(

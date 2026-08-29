@@ -24,9 +24,11 @@ export function importedRdbPositionKey(investment: Investment) {
  * shrinks it.
  */
 export function investmentMovementAmount(entry: LedgerEntry) {
-  return entry.kind === "investment"
-    ? new Decimal(entry.brlAmount).negated().toString()
-    : entry.brlAmount;
+  if (entry.kind === "investment" || entry.kind === "investment_contribution")
+    return new Decimal(entry.brlAmount).abs().toString();
+  if (entry.kind === "investment_withdrawal")
+    return new Decimal(entry.brlAmount).abs().negated().toString();
+  return entry.brlAmount;
 }
 
 export interface InvestmentDisplayGroup {
@@ -57,7 +59,7 @@ export function investmentDisplayGroups(state: FinanceState): InvestmentDisplayG
           investmentIds.has(entry.investmentId ?? "") ||
           (Boolean(importedKey) &&
             entry.source === "import" &&
-            entry.kind === "investment" &&
+            (entry.kind === "investment" || entry.kind === "investment_contribution") &&
             rdbPositionKey(entry.institutionId, entry.description) === importedKey),
       )
       .slice()

@@ -8,10 +8,32 @@ export type InstitutionType = "bank" | "broker" | "wallet" | "other";
 export type EntryKind =
   | "income"
   | "expense"
+  | "internal_transfer"
+  | "investment_contribution"
+  | "investment_withdrawal"
+  | "investment_income"
   | "investment"
   | "reserve"
   | "transfer"
   | "pix"
+  | "card_purchase"
+  | "card_refund"
+  | "card_fee"
+  | "card_interest"
+  | "credit_payment"
+  | "adjustment";
+/**
+ * The economic nature of an event.  Unlike an entry leg, this is what drives
+ * dashboards and makes a transfer or an investment movement unambiguously
+ * neutral.
+ */
+export type FinancialMovementKind =
+  | "income"
+  | "expense"
+  | "internal_transfer"
+  | "investment_contribution"
+  | "investment_withdrawal"
+  | "investment_income"
   | "card_purchase"
   | "card_refund"
   | "card_fee"
@@ -110,6 +132,8 @@ export interface LedgerEntry {
   categoryId?: string;
   institutionId?: string;
   transferGroupId?: string;
+  /** Canonical movement this balance-impacting leg belongs to. */
+  financialMovementId?: string;
   investmentId?: string;
   assetId?: string;
   creditCardId?: string;
@@ -121,6 +145,33 @@ export interface LedgerEntry {
   ignoredFromAnalytics: boolean;
   notes?: string;
   fingerprint?: string;
+  pendingReconciliation?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One business event. Its ledger entries are the legs that impact assets. */
+export interface FinancialMovement {
+  id: string;
+  kind: FinancialMovementKind;
+  date: string;
+  description: string;
+  /** Absolute economic amount. It is deliberately separate from signed legs. */
+  amount: DecimalValue;
+  currency: CurrencyCode;
+  brlAmount: DecimalValue;
+  categoryId?: string;
+  investmentId?: string;
+  creditCardId?: string;
+  importedDocumentId?: string;
+  plannedOccurrenceKey?: string;
+  /** Connects investment income recognized during a withdrawal to that withdrawal. */
+  relatedMovementId?: string;
+  source: LedgerEntry["source"];
+  notes?: string;
+  fingerprint?: string;
+  /** True only for migrated one-sided legacy records which cannot be safely balanced. */
+  legacyUnbalanced?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -219,6 +270,18 @@ export interface RecurrenceException {
   categoryId?: string;
   institutionId?: string;
   settledEntryId?: string;
+  settledMovementId?: string;
+  /** Immutable planned snapshot captured when an occurrence is realized. */
+  plannedDate?: string;
+  plannedDescription?: string;
+  plannedAmount?: DecimalValue;
+  plannedKind?: "income" | "expense";
+  plannedCategoryId?: string;
+  plannedInstitutionId?: string;
+  effectiveDate?: string;
+  effectiveAmount?: DecimalValue;
+  /** Snapshot used to make undo safe instead of deleting edited data. */
+  generatedFingerprint?: string;
 }
 
 export interface PlannedEntry {
@@ -253,6 +316,8 @@ export interface ImportCandidate {
   suggestedKind: EntryKind;
   suggestedCategoryId?: string;
   institutionId?: string;
+  counterpartyInstitutionId?: string;
+  internalTransferSuggestion?: { confidence: number; reason: string };
   confidence: number;
   reason: string;
   source: string;
@@ -277,6 +342,7 @@ export interface FinanceState {
   classificationRules: ClassificationRule[];
   institutions: Institution[];
   entries: LedgerEntry[];
+  financialMovements: FinancialMovement[];
   investments: Investment[];
   creditCards: CreditCard[];
   cardPurchases: CardPurchase[];
