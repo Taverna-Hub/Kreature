@@ -96,9 +96,11 @@ export class SupabaseFinanceRepository implements FinanceRepository {
   }
 
   private async userId() {
-    const { data, error } = await getSupabase().auth.getUser();
-    if (error || !data.user) throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-    return data.user.id;
+    // The AuthProvider restores and observes the official Supabase session.
+    // Repository reads must not start a competing network getUser() check.
+    const { data, error } = await getSupabase().auth.getSession();
+    if (error || !data.session?.user) throw new Error("Entre novamente para carregar suas informações.");
+    return data.session.user.id;
   }
 
   private async rows(table: TableName): Promise<Row[]> {
