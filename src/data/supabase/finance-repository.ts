@@ -35,8 +35,20 @@ const asDate = (value: unknown) => asString(value).slice(0, 10);
 const asTimestamp = (value: unknown) => asString(value, new Date(0).toISOString());
 const nullable = (value: string | undefined) => value ?? null;
 
-function databaseMessage(context: string, cause: { message?: string } | null) {
+function databaseMessage(context: string, cause: { code?: string; message?: string } | null) {
   if (cause?.message) console.error(`Supabase ${context}:`, cause.message);
+  if (cause?.code === "42P01" || cause?.code === "PGRST205") {
+    return "O banco do Kreature ainda não foi configurado. Aplique as migrations do Supabase e tente novamente.";
+  }
+  if (cause?.code === "42501") {
+    return "Sua sessão não tem permissão para salvar este dado. Entre novamente e tente outra vez.";
+  }
+  if (cause?.code === "23503") {
+    return "Uma conta, categoria ou instituição selecionada não está disponível para esta sessão.";
+  }
+  if (cause?.code === "23505") {
+    return "Este registro já existe. Revise os itens duplicados antes de confirmar.";
+  }
   return `Não foi possível ${context}. Tente novamente em instantes.`;
 }
 

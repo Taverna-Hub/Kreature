@@ -205,7 +205,9 @@ create index entries_user_date_idx on public.ledger_entries (user_id, occurred_o
 create index entries_account_date_idx on public.ledger_entries (account_id, occurred_on desc);
 create index entries_category_date_idx on public.ledger_entries (category_id, occurred_on desc);
 create index entries_transfer_group_idx on public.ledger_entries (user_id, transfer_group_id) where transfer_group_id is not null;
-create unique index entries_user_fingerprint_unique_idx on public.ledger_entries (user_id, fingerprint) where fingerprint is not null;
+-- Fingerprints are used as a duplicate hint during import review. They are
+-- intentionally not unique: a statement can contain legitimate repeated
+-- movements with the same date, amount and description.
 create index investments_user_active_idx on public.investments (user_id) where archived_at is null;
 create index cards_user_active_idx on public.credit_cards (user_id) where archived_at is null;
 create index purchases_card_date_idx on public.card_purchases (card_id, occurred_on desc);
