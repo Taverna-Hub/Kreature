@@ -48,6 +48,66 @@ describe("FinanceLedger", () => {
     expect(institutionBalance(state, "bank")).toBe("1000");
   });
 
+  it("mantém uma categoria de despesa sempre negativa, mesmo em tipo ambíguo", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    const expense = state.categories.find((item) => item.flow === "expense")!;
+    const entry = recordEntry(state, {
+      date: "2026-01-10",
+      description: "Pix da padaria",
+      amount: "80",
+      currency: "BRL",
+      kind: "pix",
+      categoryId: expense.id,
+      institutionId: "bank",
+    });
+    expect(entry.amount).toBe("-80");
+    expect(institutionBalance(state, "bank")).toBe("920");
+  });
+
+  it("mantém uma categoria de receita positiva no mesmo tipo ambíguo", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    const income = state.categories.find((item) => item.flow === "income")!;
+    const entry = recordEntry(state, {
+      date: "2026-01-10",
+      description: "Pix recebido",
+      amount: "-80",
+      currency: "BRL",
+      kind: "pix",
+      categoryId: income.id,
+      institutionId: "bank",
+    });
+    expect(entry.amount).toBe("80");
+    expect(institutionBalance(state, "bank")).toBe("1080");
+  });
+
+  it("corrige o sinal também ao editar o lançamento", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    const expense = state.categories.find((item) => item.flow === "expense")!;
+    const entry = recordEntry(state, {
+      date: "2026-01-10",
+      description: "Pix",
+      amount: "30",
+      currency: "BRL",
+      kind: "pix",
+      institutionId: "bank",
+    });
+    expect(entry.amount).toBe("30");
+    const updated = updateEntry(state, entry.id, {
+      date: "2026-01-10",
+      description: "Pix",
+      amount: "30",
+      currency: "BRL",
+      kind: "pix",
+      categoryId: expense.id,
+      institutionId: "bank",
+    });
+    expect(updated.amount).toBe("-30");
+    expect(institutionBalance(state, "bank")).toBe("970");
+  });
+
   it("registra transferência em duas pontas sem alterar entradas ou despesas", () => {
     const state = emptyFinanceState();
     state.institutions.push(institution("a"), institution("b", "50"));

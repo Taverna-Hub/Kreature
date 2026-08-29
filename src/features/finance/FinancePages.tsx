@@ -1,6 +1,7 @@
-import { lazy, Suspense, useMemo, useState, type MouseEvent } from "react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
+  Check,
   FileUp,
   Pencil,
   Plus,
@@ -23,6 +24,7 @@ import {
   reconcileInstitution,
   recordEntry,
   removeEntry,
+  signedAmount,
   transfer,
   updateEntry,
   type EntryInput,
@@ -54,13 +56,14 @@ import { catalogInstitution, searchInstitutionCatalog } from "@/domain/instituti
 import { cardInvoices, payCardInvoice, recordCardPurchase } from "@/domain/cards";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
-import { Button } from "@/shared/ui/Button";
+import { Button, buttonClassName, IconButton } from "@/shared/ui/Button";
 import { CustomSelect } from "@/shared/ui/CustomSelect";
 import { Dialog as Modal } from "@/shared/ui/Dialog";
 import { EmptyState as Empty } from "@/shared/ui/EmptyState";
-import { FormField as Field, SelectOptions } from "@/shared/ui/FormField";
+import { FormField as Field } from "@/shared/ui/FormField";
 import { Page } from "@/shared/ui/Page";
 import { Tabs } from "@/shared/ui/Tabs";
+import { CATEGORY_ICON_NAMES, categoryIcon } from "@/features/finance/category-icons";
 import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
 import { useAuth } from "@/auth/auth-context";
@@ -70,7 +73,62 @@ const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCusto
 const ProfileCard = lazy(() => import("@/features/profile/ProfileCard").then((module) => ({ default: module.ProfileCard })));
 
 const today = () => new Date().toISOString().slice(0, 10);
+const emptyOption = (label: string) => [["", label]] as const;
+const entryFormKindOptions = [
+  ["income", "Entrada"],
+  ["expense", "Despesa"],
+  ["investment", "Economia / aplicação"],
+  ["reserve", "Reserva"],
+  ["pix", "Pix"],
+  ["transfer", "Transferência"],
+  ["card_purchase", "Compra no cartão"],
+  ["credit_payment", "Pagamento de fatura"],
+] as const;
+const importKindOptions = [
+  ["income", "Entrada"],
+  ["expense", "Despesa"],
+  ["investment", "Investimento"],
+  ["transfer", "Transferência"],
+  ["pix", "Pix"],
+  ["credit_payment", "Pagamento de fatura"],
+] as const;
+const currencyOptions = [
+  ["BRL", "Real brasileiro (BRL)"],
+  ["USD", "Dólar (USD)"],
+  ["EUR", "Euro (EUR)"],
+  ["GBP", "Libra (GBP)"],
+] as const;
+const catalogOptions = [...emptyOption("Outra — preenchimento manual"), ...searchInstitutionCatalog("").map((item) => [item.id, item.name] as const)];
+/** Qualquer instituição do catálogo pode ser criada durante a importação, não só a detectada. */
+const catalogCreationOptions = (detected: ReadonlySet<string>) =>
+  searchInstitutionCatalog("")
+    .filter((item) => !detected.has(item.id))
+    .map((item) => [`create:${item.id}`, `Criar ${item.name}`] as const);
+const institutionOptions = (institutions: Institution[], withCurrency = false) =>
+  institutions.filter((item) => !item.archivedAt).map((item) => [item.id, withCurrency ? `${item.name} · ${item.currency}` : item.name] as const);
+const categoryOptions = (categories: Category[], flow: Category["flow"]) =>
+  categories.filter((item) => !item.archivedAt && item.flow === flow).map((item) => [item.id, item.name] as const);
+const flowSuffix = (flow: Category["flow"]) => (flow === "income" ? "receita" : "despesa");
+/** Pix pode entrar ou sair: a categoria escolhida é que define o sentido do valor. */
+const bothFlowCategoryOptions = (categories: Category[]) =>
+  categories.filter((item) => !item.archivedAt).map((item) => [item.id, `${item.name} · ${flowSuffix(item.flow)}`] as const);
+const ambiguousKind = (kind: EntryKind) => kind === "pix" || kind === "transfer" || kind === "adjustment";
 const historyMonthTones = ["violet", "teal", "amber", "rose", "sky"];
+const namesOf = (items: ImportCandidate[]) =>
+  items.slice(0, 3).map((item) => `“${item.description.trim() || "sem descrição"}”`).join(", ") + (items.length > 3 ? ` e mais ${items.length - 3}` : "");
+/** Editar o valor pode inverter o sentido da linha; a categoria antiga não pode ficar para trás. */
+const withMatchingCategory = (item: ImportCandidate, categories: Category[]): ImportCandidate => {
+  const category = categories.find((value) => value.id === item.categoryId);
+  return category && category.flow !== importCategoryFlow(item) ? { ...item, categoryId: undefined } : item;
+};
+const withImportKind = (item: ImportCandidate, kind: EntryKind): ImportCandidate => {
+  let amount = item.amount;
+  try {
+    const absolute = new Decimal(item.amount || 0).abs();
+    amount = kind === "income" ? absolute.toString() : kind === "expense" || kind === "credit_payment" || kind === "investment" ? absolute.negated().toString() : item.amount;
+  } catch { /* A validação antes da confirmação exibirá o erro. */ }
+  return { ...item, kind, amount, categoryId: undefined };
+};
 const importCategoryFlow = (item: ImportCandidate) => {
   if (item.kind === "income") return "income";
   if (item.kind === "expense") return "expense";
@@ -81,6 +139,14 @@ const importCategoryFlow = (item: ImportCandidate) => {
 function CategoryImage({ image, name }: { image: Blob; name: string }) {
   const source = useObjectUrl(image);
   return source ? <img src={source} alt={`Imagem de ${name}`} /> : null;
+}
+
+/** Imagem enviada, ícone escolhido ou — sem os dois — a inicial do nome. */
+function CategoryGlyph({ category }: { category: Pick<Category, "name" | "icon" | "image"> }) {
+  const Icon = categoryIcon(category.icon);
+  if (category.image) return <CategoryImage image={category.image} name={category.name} />;
+  if (Icon) return <Icon aria-hidden="true" />;
+  return <>{category.name.slice(0, 1)}</>;
 }
 
 function categoryIconForeground(color: string) {
@@ -114,7 +180,7 @@ export function SummaryPage() {
       title="Resumo financeiro"
       description="Tudo que importa no período escolhido, sem depender de conexão externa."
       actions={
-        <Link className="button primary" to="/lancamentos">
+        <Link className={buttonClassName()} to="/lancamentos">
           <Plus />
           Novo lançamento
         </Link>
@@ -306,22 +372,19 @@ export function LaunchesPage() {
                       </td>
                       <td className="row-actions">
                         {!entry.transferGroupId && (
-                          <button
-                            aria-label="Editar"
+                          <IconButton
+                            label="Editar"
                             onClick={() => {
                               setEditing(entry);
                               setDialog(true);
                             }}
                           >
                             <Pencil />
-                          </button>
+                          </IconButton>
                         )}
-                        <button
-                          aria-label="Excluir"
-                          onClick={() => setPendingDeletion(entry)}
-                        >
+                        <IconButton label="Excluir" onClick={() => setPendingDeletion(entry)}>
                           <Trash2 />
-                        </button>
+                        </IconButton>
                       </td>
                     </tr>
                   ))}
@@ -403,20 +466,12 @@ function EntryForm({
       }}
     >
       <Field label="Tipo">
-        <select value={kind} onChange={(event) => setKind(event.target.value as EntryKind)}>
-          <SelectOptions
-            values={[
-              ["income", "Entrada"],
-              ["expense", "Despesa"],
-              ["investment", "Economia / aplicação"],
-              ["reserve", "Reserva"],
-              ["pix", "Pix"],
-              ["transfer", "Transferência"],
-              ["card_purchase", "Compra no cartão"],
-              ["credit_payment", "Pagamento de fatura"],
-            ]}
-          />
-        </select>
+        <CustomSelect
+          label="Tipo do lançamento"
+          value={kind}
+          onChange={(next) => setKind(next as EntryKind)}
+          items={entryFormKindOptions}
+        />
       </Field>
       <Field label="Data">
         <DatePicker value={date} onChange={setDate} label="Data do lançamento" />
@@ -434,41 +489,33 @@ function EntryForm({
         />
       </Field>
       <Field label="Instituição">
-        <select name="institutionId" defaultValue={entry?.institutionId ?? ""}>
-          <option value="">Sem instituição</option>
-          {state.institutions
-            .filter((item) => !item.archivedAt)
-            .map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} · {item.currency}
-              </option>
-            ))}
-        </select>
+        <CustomSelect
+          label="Instituição"
+          name="institutionId"
+          defaultValue={entry?.institutionId ?? ""}
+          items={[...emptyOption("Sem instituição"), ...institutionOptions(state.institutions, true)]}
+        />
       </Field>
       {kind === "transfer" && (
         <Field label="Instituição de destino">
-          <select
+          <CustomSelect
+            label="Instituição de destino"
             required
             value={toInstitutionId}
-            onChange={(event) => setToInstitutionId(event.target.value)}
-          >
-            <option value="">Selecione</option>
-            {state.institutions
-              .filter((item) => !item.archivedAt)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-          </select>
+            onChange={setToInstitutionId}
+            items={[...emptyOption("Selecione"), ...institutionOptions(state.institutions)]}
+          />
         </Field>
       )}
       {(kind === "card_purchase" || kind === "credit_payment") && (
         <Field label="Cartão">
-          <select required value={creditCardId} onChange={(event) => setCreditCardId(event.target.value)}>
-            <option value="">Selecione</option>
-            {state.creditCards.filter((item) => !item.archivedAt).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
+          <CustomSelect
+            label="Cartão"
+            required
+            value={creditCardId}
+            onChange={setCreditCardId}
+            items={[...emptyOption("Selecione"), ...state.creditCards.filter((item) => !item.archivedAt).map((item) => [item.id, item.name] as const)]}
+          />
         </Field>
       )}
       {kind === "card_purchase" && (
@@ -476,20 +523,27 @@ function EntryForm({
       )}
       {kind === "credit_payment" && (
         <Field label="Fatura aberta">
-          <select required name="invoiceKey"><option value="">Selecione</option>{invoices.map((item) => <option key={item.key} value={item.key}>{dateLabel(item.dueDate)} · {money(item.total)}</option>)}</select>
+          <CustomSelect
+            label="Fatura aberta"
+            required
+            name="invoiceKey"
+            items={[...emptyOption("Selecione"), ...invoices.map((item) => [item.key, `${dateLabel(item.dueDate)} · ${money(item.total)}`] as const)]}
+          />
         </Field>
       )}
       {kind !== "transfer" && kind !== "credit_payment" && <Field label="Categoria">
-        <select name="categoryId" defaultValue={entry?.categoryId ?? ""}>
-          <option value="">Sem categoria</option>
-          {state.categories
-            .filter((item) => !item.archivedAt && item.flow === (kind === "income" ? "income" : "expense"))
-            .map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-        </select>
+        <CustomSelect
+          label="Categoria"
+          name="categoryId"
+          defaultValue={entry?.categoryId ?? ""}
+          items={[
+            ...emptyOption("Sem categoria"),
+            ...(ambiguousKind(kind)
+              ? bothFlowCategoryOptions(state.categories)
+              : categoryOptions(state.categories, kind === "income" ? "income" : "expense")),
+          ]}
+        />
+        {ambiguousKind(kind) ? <small className="form-hint">A categoria define o sentido: despesa sai da conta, receita entra.</small> : null}
       </Field>}
       <Field className="full" label="Observações">
         <textarea name="notes" rows={3} defaultValue={entry?.notes} />
@@ -510,7 +564,7 @@ function CreditCardsView() {
     <div className="panel-heading"><div><span className="eyebrow">Crédito</span><h2>Cartões e faturas</h2></div><Button onClick={() => { setEditing(undefined); setOpen(true); }}><Plus />Novo cartão</Button></div>
     <div className="entity-grid institutions">{active.length ? active.map((card) => {
       const upcoming = cardInvoices(state, card.id).find((item) => !item.paidEntryId);
-      return <article className="entity-card" key={card.id}><header><span className="entity-symbol"><WalletCards /></span><div><h2>{card.name}</h2><p>Fecha dia {card.closingDay} · vence dia {card.dueDay}</p></div><div className="row-actions"><button aria-label="Editar cartão" onClick={() => { setEditing(card); setOpen(true); }}><Pencil /></button></div></header><div className="balance"><span>Limite</span><strong>{money(card.limit, card.currency)}</strong><small>{upcoming ? `Fatura: ${money(upcoming.total, card.currency)} em ${dateLabel(upcoming.dueDate)}` : "Sem faturas abertas"}</small></div></article>;
+      return <article className="entity-card" key={card.id}><header><span className="entity-symbol"><WalletCards /></span><div><h2>{card.name}</h2><p>Fecha dia {card.closingDay} · vence dia {card.dueDay}</p></div><div className="row-actions"><IconButton label={`Editar cartão ${card.name}`} onClick={() => { setEditing(card); setOpen(true); }}><Pencil /></IconButton></div></header><div className="balance"><span>Limite</span><strong>{money(card.limit, card.currency)}</strong><small>{upcoming ? `Fatura: ${money(upcoming.total, card.currency)} em ${dateLabel(upcoming.dueDate)}` : "Sem faturas abertas"}</small></div></article>;
     }) : <Empty title="Nenhum cartão" description="Cadastre um cartão para registrar compras, parcelas e faturas." />}</div>
     {open && <CreditCardDialog value={editing} institutions={state.institutions} onClose={() => setOpen(false)} onSave={async (card) => { await commit((draft) => { const index = draft.creditCards.findIndex((item) => item.id === card.id); if (index >= 0) draft.creditCards[index] = card; else draft.creditCards.push(card); }); setOpen(false); }} />}
   </section>;
@@ -519,7 +573,7 @@ function CreditCardsView() {
 function CreditCardDialog({ value, institutions, onClose, onSave }: { value?: CreditCard; institutions: Institution[]; onClose: () => void; onSave: (value: CreditCard) => Promise<void>; }) {
   return <Modal title={value ? "Editar cartão" : "Novo cartão"} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const timestamp = now(); void onSave({ id: value?.id ?? uid("card"), name: String(data.get("name")), issuerName: String(data.get("issuerName") || "") || undefined, payerInstitutionId: String(data.get("payerInstitutionId") || "") || undefined, limit: decimalInput(data.get("limit")), closingDay: Number(data.get("closingDay")), dueDay: Number(data.get("dueDay")), currency: String(data.get("currency") || "BRL").toUpperCase(), notes: String(data.get("notes") || "") || undefined, createdAt: value?.createdAt ?? timestamp, updatedAt: timestamp }); }}>
     <Field label="Nome"><input required name="name" defaultValue={value?.name} /></Field><Field label="Emissor"><input name="issuerName" defaultValue={value?.issuerName} /></Field>
-    <Field label="Conta pagadora"><select name="payerInstitutionId" defaultValue={value?.payerInstitutionId ?? ""}><option value="">Definir ao pagar</option>{institutions.filter((item) => !item.archivedAt).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+    <Field label="Conta pagadora"><CustomSelect label="Conta pagadora" name="payerInstitutionId" defaultValue={value?.payerInstitutionId ?? ""} items={[...emptyOption("Definir ao pagar"), ...institutionOptions(institutions)]} /></Field>
     <Field label="Limite"><input required name="limit" inputMode="decimal" defaultValue={value?.limit ?? "0"} /></Field><Field label="Fechamento"><input required name="closingDay" min="1" max="31" type="number" defaultValue={value?.closingDay ?? 10} /></Field><Field label="Vencimento"><input required name="dueDay" min="1" max="31" type="number" defaultValue={value?.dueDay ?? 20} /></Field><Field label="Moeda"><input required name="currency" maxLength={5} defaultValue={value?.currency ?? "BRL"} /></Field><Field className="full" label="Observações"><textarea name="notes" rows={3} defaultValue={value?.notes} /></Field><div className="form-actions full"><Button type="submit">Salvar cartão</Button></div>
   </form></Modal>;
 }
@@ -615,87 +669,138 @@ function CategoriesView() {
           .map((item) => (
             <article className="category-card" key={item.id}>
               <span className="category-icon" style={{ background: item.color, color: categoryIconForeground(item.color) }}>
-                {item.image ? (
-                  <CategoryImage image={item.image} name={item.name} />
-                ) : (
-                  item.name.slice(0, 1)
-                )}
+                <CategoryGlyph category={item} />
               </span>
               <div>
                 <strong>{item.name}</strong>
                 <small>{item.flow === "income" ? "Receita" : "Despesa"} · {item.isDefault ? "Padrão" : "Personalizada"}</small>
               </div>
               <div className="row-actions">
-                <button
-                  aria-label={`Editar categoria ${item.name}`}
+                <IconButton
+                  label={`Editar categoria ${item.name}`}
                   onClick={() => {
                     setEditing(item);
                     setOpen(true);
                   }}
                 >
                   <Pencil />
-                </button>
-                <button aria-label={`Arquivar categoria ${item.name}`} onClick={() => archive(item)}>
+                </IconButton>
+                <IconButton label={`Arquivar categoria ${item.name}`} onClick={() => archive(item)}>
                   <Trash2 />
-                </button>
+                </IconButton>
               </div>
             </article>
           ))}
       </div>
       <section className="rules-panel" aria-labelledby="learned-rules-title">
         <div><span className="eyebrow">Automação privada</span><h3 id="learned-rules-title">Regras aprendidas</h3><p>Sincronizadas somente com a sua conta para reconhecer a mesma descrição novamente.</p></div>
-        {state.classificationRules.length ? <div className="rules-list">{state.classificationRules.map((rule) => <div className="rule-row" key={rule.id}><input aria-label={`Descrição da regra ${rule.match}`} defaultValue={rule.match} onBlur={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); const match = normalizeClassificationText(event.target.value); if (!found || !match || match === found.match) return; found.match = match; found.updatedAt = now(); })} /><select aria-label={`Categoria da regra ${rule.match}`} value={rule.categoryId} onChange={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); if (found) { found.categoryId = event.target.value; found.updatedAt = now(); } })}>{state.categories.filter((category) => !category.archivedAt && category.flow === rule.kind).map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select><button aria-label={`Remover regra ${rule.match}`} onClick={() => void commit((draft) => { draft.classificationRules = draft.classificationRules.filter((item) => item.id !== rule.id); })}><Trash2 /></button></div>)}</div> : <p className="muted">As regras aparecem quando você corrige uma categoria durante uma importação ou salva um lançamento manual.</p>}
+        {state.classificationRules.length ? <div className="rules-list">{state.classificationRules.map((rule) => <div className="rule-row" key={rule.id}><input aria-label={`Descrição da regra ${rule.match}`} defaultValue={rule.match} onBlur={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); const match = normalizeClassificationText(event.target.value); if (!found || !match || match === found.match) return; found.match = match; found.updatedAt = now(); })} /><CustomSelect label={`Categoria da regra ${rule.match}`} value={rule.categoryId} onChange={(next) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); if (found) { found.categoryId = next; found.updatedAt = now(); } })} items={categoryOptions(state.categories, rule.kind)} /><IconButton label={`Remover regra ${rule.match}`} onClick={() => void commit((draft) => { draft.classificationRules = draft.classificationRules.filter((item) => item.id !== rule.id); })}><Trash2 /></IconButton></div>)}</div> : <p className="muted">As regras aparecem quando você corrige uma categoria durante uma importação ou salva um lançamento manual.</p>}
       </section>
       {open && (
-        <Modal
-          title={editing ? "Editar categoria" : "Nova categoria"}
+        <CategoryDialog
+          value={editing}
           onClose={() => setOpen(false)}
-        >
-          <form
-            className="form-grid"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const data = new FormData(event.currentTarget);
-              const file = data.get("image") as File;
-              void commit((draft) => {
-                const timestamp = now();
-              const record: Category = {
-                  id: editing?.id ?? uid("category"),
-                  name: String(data.get("name")),
-                  icon: "Circle",
-                color: String(data.get("color")),
-                flow: String(data.get("flow")) as Category["flow"],
-                  image: file?.size ? file : editing?.image,
-                  imagePath: file?.size ? undefined : editing?.imagePath,
-                  isDefault: editing?.isDefault ?? false,
-                  createdAt: editing?.createdAt ?? timestamp,
-                  updatedAt: timestamp,
-                };
-                const index = draft.categories.findIndex((item) => item.id === record.id);
-                if (index >= 0) draft.categories[index] = record;
-                else draft.categories.push(record);
-              }).then(() => setOpen(false));
-            }}
-          >
-            <Field label="Nome">
-              <input required name="name" defaultValue={editing?.name} />
-            </Field>
-            <Field label="Cor">
-              <input type="color" name="color" defaultValue={editing?.color ?? "#f97316"} />
-            </Field>
-            <Field label="Fluxo">
-              <select name="flow" defaultValue={editing?.flow ?? "expense"}><SelectOptions values={[["expense", "Despesa"], ["income", "Receita"]]} /></select>
-            </Field>
-            <Field className="full" label="Imagem opcional">
-              <input type="file" name="image" accept="image/*" />
-            </Field>
-            <div className="form-actions full">
-              <Button type="submit">Salvar categoria</Button>
-            </div>
-          </form>
-        </Modal>
+          onSave={async (record) => {
+            await commit((draft) => {
+              const index = draft.categories.findIndex((item) => item.id === record.id);
+              if (index >= 0) draft.categories[index] = record;
+              else draft.categories.push(record);
+            });
+            setOpen(false);
+          }}
+        />
       )}
     </section>
+  );
+}
+
+function CategoryDialog({ value, onClose, onSave }: { value?: Category; onClose: () => void; onSave: (value: Category) => Promise<void> }) {
+  const [source, setSource] = useState(value?.image || value?.imagePath ? "image" : "icon");
+  const [icon, setIcon] = useState(value?.icon ?? "ShoppingBag");
+  const [color, setColor] = useState(value?.color ?? "#f97316");
+  const [image, setImage] = useState<File>();
+  const keptImage = value?.image && !image ? value.image : undefined;
+  const preview = image ?? keptImage;
+  return (
+    <Modal title={value ? "Editar categoria" : "Nova categoria"} onClose={onClose}>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const timestamp = now();
+          const usesImage = source === "image" && Boolean(preview);
+          void onSave({
+            id: value?.id ?? uid("category"),
+            name: String(data.get("name")),
+            icon,
+            color,
+            flow: String(data.get("flow")) as Category["flow"],
+            // Trocar para o ícone descarta a imagem, e o repositório apaga o arquivo guardado.
+            image: usesImage ? preview : undefined,
+            imagePath: usesImage && !image ? value?.imagePath : undefined,
+            isDefault: value?.isDefault ?? false,
+            createdAt: value?.createdAt ?? timestamp,
+            updatedAt: timestamp,
+          });
+        }}
+      >
+        <Field label="Nome">
+          <input required name="name" defaultValue={value?.name} />
+        </Field>
+        <Field label="Cor">
+          <input type="color" name="color" value={color} onChange={(event) => setColor(event.target.value)} />
+        </Field>
+        <Field label="Fluxo">
+          <CustomSelect label="Fluxo da categoria" name="flow" defaultValue={value?.flow ?? "expense"} items={[["expense", "Despesa"], ["income", "Receita"]]} />
+        </Field>
+        <div className="full category-visual">
+          <div className="category-visual-head">
+            <span className="category-icon category-preview" style={{ background: color, color: categoryIconForeground(color) }}>
+              <CategoryGlyph category={{ name: "Categoria", icon: source === "icon" ? icon : "", image: source === "image" ? preview : undefined }} />
+            </span>
+            <Tabs
+              className="category-source"
+              label="Origem do ícone"
+              value={source}
+              onChange={setSource}
+              items={[["icon", "Ícone"], ["image", "Imagem"]]}
+            />
+          </div>
+          {source === "icon" ? (
+            <div className="icon-choices" role="group" aria-label="Escolha um ícone">
+              {CATEGORY_ICON_NAMES.map((name) => {
+                const Icon = categoryIcon(name)!;
+                return (
+                  <button
+                    type="button"
+                    key={name}
+                    className={`icon-choice ${icon === name ? "selected" : ""}`}
+                    aria-pressed={icon === name}
+                    aria-label={name}
+                    onClick={() => setIcon(name)}
+                  >
+                    <Icon aria-hidden="true" />
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="category-image-picker">
+              <label className={buttonClassName({ variant: "secondary" })}>
+                {preview ? "Trocar imagem" : "Escolher imagem"}
+                <input hidden type="file" accept="image/*" onChange={(event) => setImage(event.currentTarget.files?.[0])} />
+              </label>
+              {preview ? <Button variant="ghost" onClick={() => { setImage(undefined); setSource("icon"); }}>Remover imagem</Button> : null}
+              <p className="form-hint">PNG, JPG ou SVG. A imagem fica guardada na sua conta e substitui o ícone.</p>
+            </div>
+          )}
+        </div>
+        <div className="form-actions full">
+          <Button type="submit">Salvar categoria</Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -706,6 +811,68 @@ export function ImportView() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [validation, setValidation] = useState<ImportAnalysis["validation"]>();
   const [busy, setBusy] = useState<string>();
+  // A importação acontece em duas etapas: primeiro editar e selecionar, depois confirmar.
+  const [step, setStep] = useState<"review" | "confirm">("review");
+  const [batch, setBatch] = useState({ kind: "", categoryId: "", institutionId: "" });
+  // Os impedimentos só aparecem depois da primeira tentativa, e somem sozinhos ao serem resolvidos.
+  const [showBlockers, setShowBlockers] = useState(false);
+  const panel = useRef<HTMLElement>(null);
+  const selected = candidates.filter((item) => item.include);
+  const patchCandidate = (index: number, patch: Partial<ImportCandidate>) =>
+    setCandidates((current) => current.map((value, position) => (position === index ? withMatchingCategory({ ...value, ...patch }, state.categories) : value)));
+  const setIncludeAll = (include: boolean) => setCandidates((current) => current.map((item) => ({ ...item, include })));
+  const selectOnlyNew = () => setCandidates((current) => current.map((item) => ({ ...item, include: !item.duplicate && !item.similarDuplicate })));
+  const detectedIds = new Set(
+    candidates
+      .map((item) => item.detectedInstitutionId)
+      .filter((id): id is NonNullable<ImportCandidate["detectedInstitutionId"]> => Boolean(id))
+      .filter((id) => !state.institutions.some((item) => item.catalogId === id && !item.archivedAt)),
+  );
+  const detected = [...detectedIds].map((id) => [`create:${id}`, `Criar ${catalogInstitution(id)?.name ?? "instituição detectada"} (detectada)`] as const);
+  const creatable = catalogCreationOptions(detectedIds);
+  const importInstitutionOptions = [...detected, ...emptyOption("Sem instituição"), ...institutionOptions(state.institutions), ...creatable];
+  const batchCategoryOptions = state.categories
+    .filter((item) => !item.archivedAt)
+    .map((item) => [item.id, `${item.name} · ${item.flow === "income" ? "receita" : "despesa"}`] as const);
+  const applyBatch = () => {
+    const category = state.categories.find((item) => item.id === batch.categoryId);
+    const touched = selected.length;
+    setCandidates((current) => current.map((item) => {
+      if (!item.include) return item;
+      let next = batch.kind ? withImportKind(item, batch.kind as EntryKind) : item;
+      // Categoria só se aplica a quem tem o mesmo fluxo, senão o lançamento sairia classificado errado.
+      if (category && importCategoryFlow(next) === category.flow) next = { ...next, categoryId: category.id };
+      if (batch.institutionId) next = { ...next, institutionId: batch.institutionId };
+      return next;
+    }));
+    setBatch({ kind: "", categoryId: "", institutionId: "" });
+    notify(`Alterações aplicadas a ${touched} movimentação(ões).`);
+  };
+  const incomplete = selected.filter((item) => {
+    try { return !item.date || !item.description.trim() || new Decimal(item.amount || 0).isZero(); }
+    catch { return true; }
+  });
+  const missingRate = selected.filter((item) => item.currency !== "BRL" && !item.exchangeRate);
+  const blockers = [
+    ...(selected.length ? [] : ["Selecione ao menos uma movimentação para importar."]),
+    ...(incomplete.length ? [`${incomplete.length} movimentação(ões) sem data, descrição ou valor: ${namesOf(incomplete)}.`] : []),
+    ...(missingRate.length ? [`Informe a cotação em BRL de ${[...new Set(missingRate.map((item) => item.currency))].join(", ")} nas linhas destacadas.`] : []),
+  ];
+  const blockedIds = new Set([...incomplete, ...missingRate].map((item) => item.id));
+  const advance = () => {
+    setShowBlockers(true);
+    if (blockers.length) return;
+    setStep("confirm");
+    panel.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  };
+  const reset = () => {
+    setCandidates([]);
+    setWarnings([]);
+    setValidation(undefined);
+    setBatch({ kind: "", categoryId: "", institutionId: "" });
+    setShowBlockers(false);
+    setStep("review");
+  };
   const read = async (file?: File) => {
     if (!file) return;
     setCandidates([]);
@@ -742,18 +909,9 @@ export function ImportView() {
     }
   };
   const confirm = async () => {
-    const selected = candidates.filter((item) => item.include);
-    const invalid = selected.find((item) => {
-      try { return !item.date || !item.description.trim() || new Decimal(item.amount || 0).isZero(); }
-      catch { return true; }
-    });
-    if (invalid) {
-      setWarnings(["Revise os itens selecionados: data, descrição e valor são obrigatórios."]);
-      return;
-    }
-    const pendingForeignRate = candidates.find((item) => item.include && item.currency !== "BRL" && !item.exchangeRate);
-    if (pendingForeignRate) {
-      setWarnings([`Informe a cotação de ${pendingForeignRate.currency} para BRL antes de confirmar a importação.`]);
+    if (blockers.length) {
+      setShowBlockers(true);
+      setStep("review");
       return;
     }
     await commit((draft) => {
@@ -841,34 +999,36 @@ export function ImportView() {
         }
       }
     });
-    setCandidates([]);
-    setWarnings([]);
-    setValidation(undefined);
-    notify(`${selected.length} movimentação(ões) importada(s) com sucesso.`);
+    const imported = selected.length;
+    reset();
+    notify(`${imported} movimentação(ões) importada(s) com sucesso.`);
   };
   return (
-    <section className="panel">
-      <div className="upload">
-        <FileUp />
-        <h2>Importe extrato ou fatura</h2>
-        <p>
-          PDF pesquisável ou escaneado, CSV, XLS ou XLSX. O arquivo é processado no navegador e não é armazenado.
-        </p>
-        <label className="button primary">
-          {busy ?? "Selecionar arquivo"}
-          <input
-            hidden
-            type="file"
-            accept=".ofx,.qfx,.pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
-            disabled={Boolean(busy)}
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              event.currentTarget.value = "";
-              void read(file);
-            }}
-          />
-        </label>
-      </div>
+    <section className="panel" ref={panel}>
+      {step === "review" && (
+        <div className="upload">
+          <FileUp />
+          <h2>Importe extrato ou fatura</h2>
+          <p>
+            PDF pesquisável ou escaneado, CSV, XLS ou XLSX. O arquivo é processado no navegador e não é armazenado.
+          </p>
+          <label className={buttonClassName()}>
+            {busy ? <span className="button-spinner" aria-hidden="true" /> : null}
+            {busy ?? (candidates.length ? "Trocar arquivo" : "Selecionar arquivo")}
+            <input
+              hidden
+              type="file"
+              accept=".ofx,.qfx,.pdf,.csv,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
+              disabled={Boolean(busy)}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                void read(file);
+              }}
+            />
+          </label>
+        </div>
+      )}
       {busy && <p className="import-progress" role="status">{busy}</p>}
       {validation && validation.status !== "unavailable" && (
         <div className={`import-validation ${validation.status}`} role={validation.status === "warning" ? "alert" : "status"}>
@@ -882,155 +1042,116 @@ export function ImportView() {
           ))}
         </div>
       )}
-      {candidates.length > 0 && (
+      {candidates.length > 0 && step === "review" && (
         <>
+          <div className="import-batch">
+            <div className="import-batch-head">
+              <div>
+                <h3>Revise antes de importar</h3>
+                <p className="form-hint">{selected.length} de {candidates.length} movimentação(ões) selecionada(s). Edite linha a linha ou aplique uma alteração a todas as selecionadas.</p>
+              </div>
+              <div className="import-batch-actions">
+                <Button size="sm" variant="secondary" onClick={() => setIncludeAll(true)}>Selecionar tudo</Button>
+                <Button size="sm" variant="secondary" onClick={() => setIncludeAll(false)}>Limpar seleção</Button>
+                <Button size="sm" variant="secondary" onClick={selectOnlyNew}>Somente inéditas</Button>
+              </div>
+            </div>
+            <div className="import-batch-fields">
+              <Field label="Tipo em lote">
+                <CustomSelect
+                  label="Aplicar tipo às selecionadas"
+                  value={batch.kind}
+                  onChange={(kind) => setBatch((current) => ({ ...current, kind }))}
+                  items={[...emptyOption("Manter como está"), ...importKindOptions]}
+                />
+              </Field>
+              <Field label="Categoria em lote">
+                <CustomSelect
+                  label="Aplicar categoria às selecionadas"
+                  value={batch.categoryId}
+                  onChange={(categoryId) => setBatch((current) => ({ ...current, categoryId }))}
+                  items={[...emptyOption("Manter como está"), ...batchCategoryOptions]}
+                />
+              </Field>
+              <Field label="Instituição em lote">
+                <CustomSelect
+                  label="Aplicar instituição às selecionadas"
+                  value={batch.institutionId}
+                  onChange={(institutionId) => setBatch((current) => ({ ...current, institutionId }))}
+                  items={[...emptyOption("Manter como está"), ...detected, ...institutionOptions(state.institutions), ...creatable]}
+                />
+              </Field>
+              <Button
+                variant="secondary"
+                onClick={applyBatch}
+                disabled={!selected.length || (!batch.kind && !batch.categoryId && !batch.institutionId)}
+              >
+                Aplicar às selecionadas
+              </Button>
+            </div>
+          </div>
           <div className="import-list">
             {candidates.map((item, index) => (
-              <article className={`import-row ${item.duplicate || item.similarDuplicate ? "duplicate" : ""} ${item.needsReview ? "needs-review" : ""}`} key={item.id}>
+              <article className={`import-row ${item.duplicate || item.similarDuplicate ? "duplicate" : ""} ${item.needsReview ? "needs-review" : ""} ${showBlockers && blockedIds.has(item.id) ? "blocked" : ""}`} key={item.id}>
                 <input
-                  aria-label="Incluir"
+                  aria-label={`Incluir ${item.description}`}
                   type="checkbox"
                   checked={item.include}
-                  onChange={(event) =>
-                    setCandidates((current) =>
-                      current.map((value, i) =>
-                        i === index ? { ...value, include: event.target.checked } : value,
-                      ),
-                    )
-                  }
+                  onChange={(event) => patchCandidate(index, { include: event.target.checked })}
                 />
                 <div className="import-fields">
                   <DatePicker
                     value={item.date}
                     label={`Data de ${item.description}`}
-                    onChange={(date) => setCandidates((current) => current.map((value, i) => i === index ? { ...value, date } : value))}
+                    onChange={(date) => patchCandidate(index, { date })}
                   />
                   <input
                     aria-label="Descrição"
                     value={item.description}
-                    onChange={(event) =>
-                      setCandidates((current) =>
-                        current.map((value, i) =>
-                          i === index ? { ...value, description: event.target.value } : value,
-                        ),
-                      )
-                    }
+                    onChange={(event) => patchCandidate(index, { description: event.target.value })}
                   />
                   <input
                     aria-label="Valor"
                     inputMode="decimal"
                     value={item.amount}
-                    onChange={(event) =>
-                      setCandidates((current) =>
-                        current.map((value, i) =>
-                          i === index ? { ...value, amount: event.target.value } : value,
-                        ),
-                      )
-                    }
+                    onChange={(event) => patchCandidate(index, { amount: event.target.value })}
                   />
-                  <select
+                  <CustomSelect
+                    label="Moeda"
                     value={item.currency}
-                    aria-label="Moeda"
-                    onChange={(event) => setCandidates((current) => current.map((value, i) => i === index ? { ...value, currency: event.target.value as ImportCandidate["currency"] } : value))}
-                  >
-                    <SelectOptions values={[["BRL", "Real brasileiro (BRL)"], ["USD", "Dólar (USD)"], ["EUR", "Euro (EUR)"], ["GBP", "Libra (GBP)"]]} />
-                  </select>
-                  {item.currency !== "BRL" && <input aria-label={`Cotação ${item.currency} para BRL`} inputMode="decimal" placeholder="Cotação em BRL" value={item.exchangeRate ?? ""} onChange={(event) => setCandidates((current) => current.map((value, i) => i === index ? { ...value, exchangeRate: decimalInput(event.target.value) } : value))} />}
-                  <select
+                    onChange={(currency) => patchCandidate(index, { currency: currency as ImportCandidate["currency"] })}
+                    items={currencyOptions}
+                  />
+                  {item.currency !== "BRL" && <input aria-label={`Cotação ${item.currency} para BRL`} inputMode="decimal" placeholder="Cotação em BRL" value={item.exchangeRate ?? ""} onChange={(event) => patchCandidate(index, { exchangeRate: decimalInput(event.target.value) })} />}
+                  <CustomSelect
+                    label="Tipo de movimentação"
                     value={item.kind}
-                    aria-label="Tipo de movimentação"
-                    onChange={(event) =>
-                      setCandidates((current) =>
-                        current.map((value, i) => {
-                          if (i !== index) return value;
-                          const kind = event.target.value as EntryKind;
-                          let amount = value.amount;
-                          try {
-                            const absolute = new Decimal(value.amount || 0).abs();
-                            amount = kind === "income" ? absolute.toString() : kind === "expense" || kind === "credit_payment" || kind === "investment" ? absolute.negated().toString() : value.amount;
-                          } catch { /* A validação antes da confirmação exibirá o erro. */ }
-                          return { ...value, kind, amount, categoryId: undefined };
-                        }),
-                      )
-                    }
-                  >
-                    <SelectOptions
-                      values={[
-                        ["income", "Entrada"],
-                        ["expense", "Despesa"],
-                        ["investment", "Investimento"],
-                        ["transfer", "Transferência"],
-                        ["pix", "Pix"],
-                        ["credit_payment", "Pagamento de fatura"],
-                      ]}
-                    />
-                  </select>
-                  <select
+                    onChange={(kind) => setCandidates((current) => current.map((value, position) => (position === index ? withImportKind(value, kind as EntryKind) : value)))}
+                    items={importKindOptions}
+                  />
+                  <CustomSelect
+                    label="Categoria"
                     value={item.categoryId ?? ""}
-                    aria-label="Categoria"
-                    onChange={(event) =>
-                      setCandidates((current) =>
-                        current.map((value, i) =>
-                          i === index
-                            ? { ...value, categoryId: event.target.value || undefined }
-                            : value,
-                        ),
-                      )
-                    }
-                  >
-                    <option value="">Sem categoria</option>
-                    {state.categories
-                      .filter((value) => !value.archivedAt && value.flow === importCategoryFlow(item))
-                      .map((value) => (
-                        <option value={value.id} key={value.id}>
-                          {value.name}
-                        </option>
-                      ))}
-                  </select>
-                  <select
+                    onChange={(categoryId) => patchCandidate(index, { categoryId: categoryId || undefined })}
+                    items={[...emptyOption("Sem categoria"), ...categoryOptions(state.categories, importCategoryFlow(item))]}
+                  />
+                  <CustomSelect
+                    label="Conta de destino"
                     value={item.institutionId ?? ""}
-                    aria-label="Conta de destino"
-                    onChange={(event) =>
-                      setCandidates((current) =>
-                        current.map((value, i) =>
-                          i === index
-                            ? { ...value, institutionId: event.target.value || undefined }
-                            : value,
-                        ),
-                      )
-                    }
-                  >
-                    {item.detectedInstitutionId && !state.institutions.some((value) => value.catalogId === item.detectedInstitutionId && !value.archivedAt) && (
-                      <option value={`create:${item.detectedInstitutionId}`}>Criar {catalogInstitution(item.detectedInstitutionId)?.name ?? "Instituição detectada"}</option>
-                    )}
-                    <option value="">Sem instituição</option>
-                    {state.institutions
-                      .filter((value) => !value.archivedAt)
-                      .map((value) => (
-                        <option value={value.id} key={value.id}>
-                          {value.name}
-                        </option>
-                      ))}
-                  </select>
+                    onChange={(institutionId) => patchCandidate(index, { institutionId: institutionId || undefined })}
+                    items={importInstitutionOptions}
+                  />
                 </div>
                 <div className="confidence">
                   <span>{Math.round(item.confidence * 100)}%</span>
                   {item.page && <small>Página {item.page} · {item.extractionSource === "ocr" ? "OCR" : "texto do PDF"}</small>}
                   <small>{item.duplicate ? "Duplicata provável — desmarcada por segurança" : item.similarDuplicate ? "Movimentação parecida já existe — revise antes de incluir" : item.reason}</small>
                   {item.kind === "investment" && (
-                    <label>
+                    <label className="check">
                       <input
                         type="checkbox"
                         checked={item.createInvestment}
-                        onChange={(event) =>
-                          setCandidates((current) =>
-                            current.map((value, i) =>
-                              i === index
-                                ? { ...value, createInvestment: event.target.checked }
-                                : value,
-                            ),
-                          )
-                        }
+                        onChange={(event) => patchCandidate(index, { createInvestment: event.target.checked })}
                       />
                       Criar ativo
                     </label>
@@ -1039,27 +1160,104 @@ export function ImportView() {
               </article>
             ))}
           </div>
+          {showBlockers && blockers.length > 0 && (
+            <div className="import-blockers" role="alert">
+              {blockers.map((message) => <p key={message}>{message}</p>)}
+            </div>
+          )}
           <div className="form-actions">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setCandidates([]);
-                setWarnings([]);
-                setValidation(undefined);
-              }}
-            >
-              Cancelar importação
-            </Button>
-            <Button
-              onClick={() => void confirm()}
-              disabled={!candidates.some((item) => item.include)}
-            >
-              Confirmar importação
-            </Button>
+            <Button variant="secondary" onClick={reset}>Cancelar importação</Button>
+            <Button onClick={advance}>Revisar e importar</Button>
           </div>
         </>
       )}
+      {candidates.length > 0 && step === "confirm" && (
+        <ImportConfirmation
+          state={state}
+          selected={selected}
+          onBack={() => setStep("review")}
+          onConfirm={() => void confirm()}
+        />
+      )}
     </section>
+  );
+}
+
+function ImportConfirmation({ state, selected, onBack, onConfirm }: {
+  state: FinanceState;
+  selected: ImportCandidate[];
+  onBack: () => void;
+  onConfirm: () => void;
+}) {
+  const finalAmount = (item: ImportCandidate) =>
+    signedAmount(item.kind, item.amount, state.categories.find((value) => value.id === item.categoryId)?.flow);
+  const brlAmount = (item: ImportCandidate) => {
+    try { return new Decimal(finalAmount(item)).times(item.exchangeRate ?? "1"); }
+    catch { return new Decimal(0); }
+  };
+  const totals = selected.reduce(
+    (accumulator, item) => {
+      const value = brlAmount(item);
+      return value.isNegative()
+        ? { ...accumulator, debits: accumulator.debits.plus(value.abs()) }
+        : { ...accumulator, credits: accumulator.credits.plus(value) };
+    },
+    { credits: new Decimal(0), debits: new Decimal(0) },
+  );
+  const kindCounts = importKindOptions
+    .map(([kind, label]) => [label, selected.filter((item) => item.kind === kind).length] as const)
+    .filter(([, count]) => count > 0);
+  const duplicates = selected.filter((item) => item.duplicate || item.similarDuplicate).length;
+  const newInstitutions = new Set(selected.map((item) => item.institutionId).filter((id) => id?.startsWith("create:"))).size;
+  const withoutCategory = selected.filter((item) => !item.categoryId).length;
+  const institutionName = (id?: string) => {
+    if (!id) return "Sem instituição";
+    if (id.startsWith("create:")) return `${catalogInstitution(id.slice("create:".length))?.name ?? "Nova instituição"} (nova)`;
+    return state.institutions.find((item) => item.id === id)?.name ?? "Sem instituição";
+  };
+  return (
+    <div className="import-summary">
+      <div className="panel-heading">
+        <div>
+          <h3>Confirme a importação</h3>
+          <p className="form-hint">Nada é gravado até você confirmar. Volte para a edição se algo estiver diferente do esperado.</p>
+        </div>
+      </div>
+      <div className="metric-grid">
+        <div className="metric"><span>Movimentações</span><strong>{selected.length}</strong></div>
+        <div className="metric income"><span>Entradas</span><strong>{money(totals.credits.toString())}</strong></div>
+        <div className="metric expense"><span>Saídas</span><strong>{money(totals.debits.toString())}</strong></div>
+        <div className="metric available"><span>Resultado</span><strong>{money(totals.credits.minus(totals.debits).toString())}</strong></div>
+      </div>
+      <ul className="import-summary-notes">
+        <li>Tipos: {kindCounts.map(([label, count]) => `${count} ${label.toLowerCase()}`).join(" · ") || "—"}</li>
+        {newInstitutions > 0 && <li>{newInstitutions} instituição(ões) será(ão) criada(s) durante a importação.</li>}
+        {withoutCategory > 0 && <li>{withoutCategory} movimentação(ões) sem categoria — dá para classificar depois.</li>}
+        {duplicates > 0 && <li className="warning-text">{duplicates} movimentação(ões) marcada(s) como possível duplicata continuam selecionadas.</li>}
+      </ul>
+      <div className="responsive-table import-preview">
+        <table>
+          <thead>
+            <tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Instituição</th><th>Valor</th></tr>
+          </thead>
+          <tbody>
+            {selected.map((item) => (
+              <tr key={item.id}>
+                <td data-label="Data">{dateLabel(item.date)}</td>
+                <td data-label="Descrição"><strong>{cleanTransactionDescription(item.description)}</strong></td>
+                <td data-label="Tipo"><span className={`badge ${item.kind}`}>{entryKindLabel(item.kind)}</span></td>
+                <td data-label="Instituição">{institutionName(item.institutionId)}</td>
+                <td data-label="Valor" className={brlAmount(item).isNegative() ? "negative" : "positive"}>{money(finalAmount(item), item.currency)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="form-actions">
+        <Button variant="secondary" onClick={onBack}>Voltar e editar</Button>
+        <Button onClick={onConfirm}>Confirmar importação</Button>
+      </div>
+    </div>
   );
 }
 
@@ -1107,7 +1305,7 @@ export function InstitutionsPage() {
       description="Bancos, corretoras e carteiras em qualquer moeda."
       actions={
         <>
-          <Link className="button secondary" to="/patrimonio/investimentos">
+          <Link className={buttonClassName({ variant: "secondary" })} to="/patrimonio/investimentos">
             Ver investimentos
           </Link>
           <Button
@@ -1143,17 +1341,18 @@ export function InstitutionsPage() {
                     </p>
                   </div>
                   <div className="row-actions">
-                    <button
+                    <IconButton
+                      label={`Editar ${item.name}`}
                       onClick={() => {
                         setEditing(item);
                         setOpen(true);
                       }}
                     >
                       <Pencil />
-                    </button>
-                    <button onClick={() => archive(item)}>
+                    </IconButton>
+                    <IconButton label={`Arquivar ${item.name}`} onClick={() => archive(item)}>
                       <Trash2 />
-                    </button>
+                    </IconButton>
                   </div>
                 </header>
                 <div className="balance">
@@ -1250,14 +1449,17 @@ function InstitutionDialog({
   onClose: () => void;
   onSave: (value: Institution) => Promise<void>;
 }) {
-  const [catalogQuery, setCatalogQuery] = useState("");
-  const selectCatalog = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const item = catalogInstitution(event.target.value);
-    if (!item || !event.currentTarget.form) return;
-    const form = event.currentTarget.form;
-    (form.elements.namedItem("name") as HTMLInputElement).value = item.name;
-    (form.elements.namedItem("type") as HTMLSelectElement).value = item.type;
-    (form.elements.namedItem("bankCode") as HTMLInputElement).value = item.bankCode ?? "";
+  const [catalogId, setCatalogId] = useState(value?.catalogId ?? "");
+  const [name, setName] = useState(value?.name ?? "");
+  const [type, setType] = useState<InstitutionType>(value?.type ?? "bank");
+  const [bankCode, setBankCode] = useState(value?.bankCode ?? "");
+  const selectCatalog = (next: string) => {
+    setCatalogId(next);
+    const item = catalogInstitution(next);
+    if (!item) return;
+    setName(item.name);
+    setType(item.type);
+    setBankCode(item.bankCode ?? "");
   };
   return (
     <Modal title={value ? "Editar instituição" : "Nova instituição"} onClose={onClose}>
@@ -1289,29 +1491,34 @@ function InstitutionDialog({
         }}
       >
         <Field className="full" label="Instituição conhecida">
-          <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Buscar Nubank, Itaú, XP…" aria-label="Buscar instituição" />
-          <select name="catalogId" defaultValue={value?.catalogId ?? ""} onChange={selectCatalog}>
-            <option value="">Outra — preenchimento manual</option>
-            {searchInstitutionCatalog(catalogQuery).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
+          <CustomSelect
+            label="Instituição conhecida"
+            name="catalogId"
+            searchable
+            value={catalogId}
+            onChange={selectCatalog}
+            items={catalogOptions}
+          />
         </Field>
         <Field label="Nome">
-          <input required name="name" defaultValue={value?.name} />
+          <input required name="name" value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
         <Field label="Tipo">
-          <select name="type" defaultValue={value?.type ?? "bank"}>
-            <SelectOptions
-              values={[
-                ["bank", "Banco"],
-                ["broker", "Corretora"],
-                ["wallet", "Carteira digital"],
-                ["other", "Outra"],
-              ]}
-            />
-          </select>
+          <CustomSelect
+            label="Tipo de instituição"
+            name="type"
+            value={type}
+            onChange={(next) => setType(next as InstitutionType)}
+            items={[
+              ["bank", "Banco"],
+              ["broker", "Corretora"],
+              ["wallet", "Carteira digital"],
+              ["other", "Outra"],
+            ]}
+          />
         </Field>
         <Field label="Código do banco">
-          <input name="bankCode" defaultValue={value?.bankCode} />
+          <input name="bankCode" value={bankCode} onChange={(event) => setBankCode(event.target.value)} />
         </Field>
         <Field label="Agência">
           <input name="agency" defaultValue={value?.agency} />
@@ -1394,7 +1601,7 @@ export function InvestmentsPage() {
       description="Acompanhe aplicações, ativos, rentabilidade e proventos."
       actions={
         <>
-          <Link className="button secondary" to="/patrimonio/instituicoes">
+          <Link className={buttonClassName({ variant: "secondary" })} to="/patrimonio/instituicoes">
             Ver instituições
           </Link>
           <Button
@@ -1448,8 +1655,8 @@ export function InvestmentsPage() {
                   </div>
                   <div className="investment-card-actions">
                     {institution && <InstitutionLogo institution={institution} size={32} />}
-                    {isConsolidated && <button
-                      aria-label={`Editar detalhes de ${item.name}`}
+                    {isConsolidated && <IconButton
+                      label={`Editar detalhes de ${item.name}`}
                       onClick={() => {
                         setEditing(item);
                         setEditingGroupId(group.id);
@@ -1457,10 +1664,10 @@ export function InvestmentsPage() {
                       }}
                     >
                       <Pencil />
-                    </button>}
+                    </IconButton>}
                     {!isConsolidated && <div className="row-actions">
-                      <button
-                        aria-label={`Editar ${item.name}`}
+                      <IconButton
+                        label={`Editar ${item.name}`}
                         onClick={() => {
                           setEditing(item);
                           setEditingGroupId(undefined);
@@ -1468,9 +1675,9 @@ export function InvestmentsPage() {
                         }}
                       >
                         <Pencil />
-                      </button>
-                      <button
-                        aria-label={`Arquivar ${item.name}`}
+                      </IconButton>
+                      <IconButton
+                        label={`Arquivar ${item.name}`}
                         onClick={() =>
                           void commit((draft) => {
                             const used = draft.entries.some(
@@ -1487,7 +1694,7 @@ export function InvestmentsPage() {
                         }
                       >
                         <Trash2 />
-                      </button>
+                      </IconButton>
                     </div>}
                   </div>
                 </header>
@@ -1657,21 +1864,15 @@ function InvestmentDialog({
         }}
       >
         <Field label="Classe financeira">
-          <select name="type" defaultValue={value?.type ?? "cdb"}>
-            <SelectOptions values={investmentTypeOptions} />
-          </select>
+          <CustomSelect label="Classe financeira" name="type" defaultValue={value?.type ?? "cdb"} items={investmentTypeOptions} />
         </Field>
         <Field label="Instituição">
-          <select name="institutionId" defaultValue={value?.institutionId ?? ""}>
-            <option value="">Sem instituição</option>
-            {institutions
-              .filter((item) => !item.archivedAt)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-          </select>
+          <CustomSelect
+            label="Instituição"
+            name="institutionId"
+            defaultValue={value?.institutionId ?? ""}
+            items={[...emptyOption("Sem instituição"), ...institutionOptions(institutions)]}
+          />
         </Field>
         <Field className="full" label="Nome do ativo">
           <input required name="name" defaultValue={value?.name} />
@@ -1797,17 +1998,17 @@ export function PlanningPage() {
                 <span className="projected">Saldo {money(item.projected)}</span>
                 <div className="row-actions">
                   {!item.settled && (
-                    <button
-                      title="Marcar como realizado"
+                    <IconButton
+                      label="Marcar como realizado"
                       onClick={() =>
                         void commit((draft) => settleOccurrence(draft, item.planId, item.date))
                       }
                     >
-                      ✓
-                    </button>
+                      <Check />
+                    </IconButton>
                   )}
-                  <button
-                    title="Editar série"
+                  <IconButton
+                    label="Editar série"
                     onClick={() => {
                       setEditing(state.plannedEntries.find((plan) => plan.id === item.planId));
                       setEditingDate(item.date);
@@ -1815,7 +2016,7 @@ export function PlanningPage() {
                     }}
                   >
                     <Pencil />
-                  </button>
+                  </IconButton>
                 </div>
               </article>
             ))}
@@ -1905,17 +2106,16 @@ function PlanningDialog({
 }) {
   const [editMode, setEditMode] = useState<"one" | "future" | "all">("all");
   const [kind, setKind] = useState<"income" | "expense">(value?.kind ?? "expense");
+  const [description, setDescription] = useState(value?.description ?? "");
+  const [frequency, setFrequency] = useState<RecurrenceFrequency>(value?.frequency ?? "once");
+  const [categoryId, setCategoryId] = useState(value?.categoryId ?? "");
   const showSchedule = !value || editMode !== "one";
   const categories = state.categories.filter((item) => !item.archivedAt && item.flow === kind);
-  const applyIncomePreset = (event: MouseEvent<HTMLButtonElement>, description: string, categoryName: string) => {
-    const form = event.currentTarget.form;
+  const applyIncomePreset = (description: string, categoryName: string) => {
+    setDescription(description);
+    setFrequency("monthly");
     const category = categories.find((item) => item.name === categoryName);
-    const descriptionInput = form?.elements.namedItem("description") as HTMLInputElement | null;
-    const frequencyInput = form?.elements.namedItem("frequency") as HTMLSelectElement | null;
-    const categoryInput = form?.elements.namedItem("categoryId") as HTMLSelectElement | null;
-    if (descriptionInput) descriptionInput.value = description;
-    if (frequencyInput) frequencyInput.value = "monthly";
-    if (categoryInput && category) categoryInput.value = category.id;
+    if (category) setCategoryId(category.id);
   };
   return (
     <Modal title={value ? "Editar planejamento" : "Novo planejamento"} onClose={onClose}>
@@ -1950,19 +2150,17 @@ function PlanningDialog({
         {value && value.frequency !== "once" && (
           <>
             <Field label="Aplicar alteração em">
-              <select
+              <CustomSelect
+                label="Aplicar alteração em"
                 name="editMode"
                 value={editMode}
-                onChange={(event) => setEditMode(event.target.value as typeof editMode)}
-              >
-                <SelectOptions
-                  values={[
-                    ["all", "Série inteira"],
-                    ["one", "Somente esta ocorrência"],
-                    ["future", "Esta e as futuras"],
-                  ]}
-                />
-              </select>
+                onChange={(next) => setEditMode(next as typeof editMode)}
+                items={[
+                  ["all", "Série inteira"],
+                  ["one", "Somente esta ocorrência"],
+                  ["future", "Esta e as futuras"],
+                ]}
+              />
             </Field>
             {editMode !== "all" && (
               <Field label="Data da ocorrência">
@@ -1972,23 +2170,25 @@ function PlanningDialog({
           </>
         )}
         <Field label="Tipo">
-          <select name="kind" value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}>
-            <SelectOptions
-              values={[
-                ["income", "Receita"],
-                ["expense", "Despesa"],
-              ]}
-            />
-          </select>
+          <CustomSelect
+            label="Tipo do planejamento"
+            name="kind"
+            value={kind}
+            onChange={(next) => setKind(next as typeof kind)}
+            items={[
+              ["income", "Receita"],
+              ["expense", "Despesa"],
+            ]}
+          />
         </Field>
-        {kind === "income" && <div className="income-presets full" aria-label="Atalhos de receita"><span>Preencher como</span><div><button type="button" onClick={(event) => applyIncomePreset(event, "Salário", "Salário")}>Salário mensal</button><button type="button" onClick={(event) => applyIncomePreset(event, "Aluguel recebido", "Aluguel recebido")}>Aluguel mensal</button><button type="button" onClick={(event) => applyIncomePreset(event, "Freela", "Freela e serviços")}>Freela</button></div></div>}
+        {kind === "income" && <div className="income-presets full" aria-label="Atalhos de receita"><span>Preencher como</span><div><button type="button" onClick={() => applyIncomePreset("Salário", "Salário")}>Salário mensal</button><button type="button" onClick={() => applyIncomePreset("Aluguel recebido", "Aluguel recebido")}>Aluguel mensal</button><button type="button" onClick={() => applyIncomePreset("Freela", "Freela e serviços")}>Freela</button></div></div>}
         {(!value || editMode === "all") && (
           <Field label="Primeira data">
             <FormDatePicker name="startDate" defaultValue={value?.startDate ?? today()} label="Primeira data" required />
           </Field>
         )}
         <Field className="full" label="Descrição">
-          <input required name="description" defaultValue={value?.description} />
+          <input required name="description" value={description} onChange={(event) => setDescription(event.target.value)} />
         </Field>
         <Field label="Valor">
           <input required name="amount" inputMode="decimal" defaultValue={value?.amount} />
@@ -1996,18 +2196,20 @@ function PlanningDialog({
         {showSchedule && (
           <>
             <Field label="Frequência">
-              <select name="frequency" defaultValue={value?.frequency ?? "once"}>
-                <SelectOptions
-                  values={[
-                    ["once", "Uma vez"],
-                    ["daily", "Diária"],
-                    ["weekly", "Semanal"],
-                    ["biweekly", "Quinzenal"],
-                    ["monthly", "Mensal"],
-                    ["yearly", "Anual"],
-                  ]}
-                />
-              </select>
+              <CustomSelect
+                label="Frequência"
+                name="frequency"
+                value={frequency}
+                onChange={(next) => setFrequency(next as RecurrenceFrequency)}
+                items={[
+                  ["once", "Uma vez"],
+                  ["daily", "Diária"],
+                  ["weekly", "Semanal"],
+                  ["biweekly", "Quinzenal"],
+                  ["monthly", "Mensal"],
+                  ["yearly", "Anual"],
+                ]}
+              />
             </Field>
             <Field label="Termina em">
               <FormDatePicker name="endDate" defaultValue={value?.endDate} label="Data de término" />
@@ -2023,27 +2225,21 @@ function PlanningDialog({
           </>
         )}
         <Field label="Categoria">
-          <select name="categoryId" defaultValue={value?.categoryId ?? ""}>
-            <option value="">Sem categoria</option>
-            {categories
-              .map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.name}
-                </option>
-              ))}
-          </select>
+          <CustomSelect
+            label="Categoria"
+            name="categoryId"
+            value={categoryId}
+            onChange={setCategoryId}
+            items={[...emptyOption("Sem categoria"), ...categories.map((item) => [item.id, item.name] as const)]}
+          />
         </Field>
         <Field label="Instituição">
-          <select name="institutionId" defaultValue={value?.institutionId ?? ""}>
-            <option value="">Sem instituição</option>
-            {state.institutions
-              .filter((item) => !item.archivedAt)
-              .map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.name}
-                </option>
-              ))}
-          </select>
+          <CustomSelect
+            label="Instituição"
+            name="institutionId"
+            defaultValue={value?.institutionId ?? ""}
+            items={[...emptyOption("Sem instituição"), ...institutionOptions(state.institutions)]}
+          />
         </Field>
         <div className="form-actions full">
           {onRemove && (

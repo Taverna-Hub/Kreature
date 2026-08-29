@@ -1,24 +1,44 @@
 import type { InstitutionCatalogId } from "@/domain/types";
 
 const bankPatterns: Array<[InstitutionCatalogId, RegExp]> = [
-  ["nubank", /\bnubank\b|nu pagamentos|nupay/i],
-  ["itau", /ita[uú]|unibanco/i],
-  ["inter", /banco inter|\binter\b/i],
-  ["bradesco", /bradesco/i],
-  ["santander", /santander/i],
-  ["banco-do-brasil", /banco do brasil|\bbb\b/i],
-  ["caixa", /caixa econ[oô]mica|\bcaixa\b/i],
-  ["c6", /\bc6 bank\b|\bc6\b/i],
-  ["btg-pactual", /btg pactual|banco btg/i],
-  ["xp", /xp investimentos|\bxp\b/i],
-  ["rico", /rico investimentos|corretora rico/i],
-  ["clear", /clear corretora|clear investimentos/i],
-  ["mercado-pago", /mercado pago/i],
-  ["picpay", /picpay/i],
-  ["neon", /banco neon|\bneon\b/i],
-  ["wise", /\bwise\b/i],
+  ["nubank", /\bnubank\b|nu pagamentos|nupay/gi],
+  ["itau", /ita[uú]|unibanco/gi],
+  ["inter", /banco inter|\binter\b/gi],
+  ["bradesco", /bradesco/gi],
+  ["santander", /santander/gi],
+  ["banco-do-brasil", /banco do brasil|\bbb\b/gi],
+  ["caixa", /caixa econ[oô]mica|\bcaixa\b/gi],
+  ["c6", /\bc6 bank\b|\bc6\b/gi],
+  ["btg-pactual", /btg pactual|banco btg/gi],
+  ["xp", /xp investimentos|\bxp\b/gi],
+  ["rico", /rico investimentos|corretora rico/gi],
+  ["clear", /clear corretora|clear investimentos/gi],
+  ["mercado-pago", /mercado pago/gi],
+  ["picpay", /picpay/gi],
+  ["neon", /banco neon|\bneon\b/gi],
+  ["wise", /\bwise\b/gi],
 ];
 
+/** O emissor assina o topo do documento; no corpo, os nomes citados são contrapartes. */
+const headerLength = 600;
+
+/**
+ * Antes a primeira regra que casasse vencia, então um extrato da XP com uma única
+ * transferência do Santander virava Santander. Agora vale quem assina o cabeçalho e,
+ * na falta disso, quem é mais citado no documento inteiro.
+ */
 export function detectStatementInstitution(text: string): InstitutionCatalogId | undefined {
-  return bankPatterns.find(([, pattern]) => pattern.test(text))?.[0];
+  const header = text.slice(0, headerLength);
+  const signature = bankPatterns
+    .map(([id, pattern]) => [id, header.search(pattern)] as const)
+    .filter(([, at]) => at >= 0)
+    .sort(([, a], [, b]) => a - b)[0];
+  if (signature) return signature[0];
+
+  let best: { id: InstitutionCatalogId; mentions: number } | undefined;
+  for (const [id, pattern] of bankPatterns) {
+    const mentions = (text.match(pattern) ?? []).length;
+    if (mentions && (!best || mentions > best.mentions)) best = { id, mentions };
+  }
+  return best?.id;
 }
