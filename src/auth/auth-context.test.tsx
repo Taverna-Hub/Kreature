@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.fn();
 const getUser = vi.fn();
+const supabaseSignUp = vi.fn();
 const unsubscribe = vi.fn();
 let listenerCallback: ((event: "TOKEN_REFRESHED" | "SIGNED_OUT", session: { user: { id: string } } | null) => void) | undefined;
 const onAuthStateChange = vi.fn((callback) => {
@@ -11,7 +12,7 @@ const onAuthStateChange = vi.fn((callback) => {
 });
 
 vi.mock("@/data/supabase/client", () => ({
-  getSupabase: () => ({ auth: { getSession, getUser, onAuthStateChange } }),
+  getSupabase: () => ({ auth: { getSession, getUser, signUp: supabaseSignUp, onAuthStateChange } }),
 }));
 
 import { AuthProvider, useAuth } from "./auth-context";
@@ -21,13 +22,20 @@ function Probe() {
   return <output>{status}</output>;
 }
 
+function SignUpProbe() {
+  const { signUp } = useAuth();
+  return <button onClick={() => void signUp("Thomaz", "thomaz@example.com", "senha-segura")}>Criar</button>;
+}
+
 describe("AuthProvider", () => {
   afterEach(() => {
     getSession.mockReset();
     getUser.mockReset();
+    supabaseSignUp.mockReset();
     onAuthStateChange.mockClear();
     unsubscribe.mockClear();
     listenerCallback = undefined;
+    vi.unstubAllEnvs();
   });
 
   it("mantÃ©m a sessÃ£o local vÃ¡lida quando a validaÃ§Ã£o de rede falha", async () => {
@@ -47,5 +55,23 @@ describe("AuthProvider", () => {
     expect(screen.getByText("authenticated")).toBeInTheDocument();
     listenerCallback?.("SIGNED_OUT", null);
     await vi.waitFor(() => expect(screen.getByText("anonymous")).toBeInTheDocument());
+  });
+
+  it("envia a confirmação de cadastro para a aplicação publicada", async () => {
+    vi.stubEnv("VITE_APP_URL", "https://kreature.vercel.app/");
+    getSession.mockResolvedValue({ data: { session: null }, error: null });
+    supabaseSignUp.mockResolvedValue({ error: null });
+    render(<AuthProvider><SignUpProbe /></AuthProvider>);
+
+    screen.getByRole("button", { name: "Criar" }).click();
+
+    await vi.waitFor(() => expect(supabaseSignUp).toHaveBeenCalledWith({
+      email: "thomaz@example.com",
+      password: "senha-segura",
+      options: {
+        data: { display_name: "Thomaz" },
+        emailRedirectTo: "https://kreature.vercel.app/auth/callback",
+      },
+    }));
   });
 });
