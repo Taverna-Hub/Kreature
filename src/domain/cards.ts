@@ -59,7 +59,7 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
   const card = state.creditCards.find((item) => item.id === cardId);
   if (!card) throw new Error("Cartão não encontrado.");
   const groups = new Map<string, InvoiceInstallment[]>();
-  state.cardPurchases.filter((purchase) => purchase.cardId === cardId).forEach((purchase) => {
+  state.cardPurchases.filter((purchase) => purchase.cardId === cardId && (purchase.transactionKind ?? "purchase") === "purchase").forEach((purchase) => {
     invoiceSchedule(card, purchase).forEach((installment, index) => {
       const key = `${card.id}:${format(addMonths(parseISO(purchase.firstInvoiceKey.split(":")[1] + "-01"), index), "yyyy-MM")}`;
       groups.set(key, [...(groups.get(key) ?? []), installment]);
@@ -103,6 +103,7 @@ export function recordCardPurchase(
   const timestamp = now();
   const purchase: CardPurchase = {
     ...input,
+    transactionKind: "purchase",
     id: uid("card-purchase"),
     ledgerEntryId: ledgerEntry.id,
     firstInvoiceKey: invoiceKeyFor(card, input.date),

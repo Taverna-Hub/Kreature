@@ -9,7 +9,7 @@ export function ResetPasswordPage() {
   const { sendPasswordReset, updatePassword } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [recovery, setRecovery] = useState(false);
+  const [recovery, setRecovery] = useState(() => new URLSearchParams(window.location.search).get("recovery") === "1");
   const [feedback, setFeedback] = useState<string>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);

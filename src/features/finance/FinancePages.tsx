@@ -54,6 +54,7 @@ import { fetchAssetQuote, fetchExchangeRate } from "@/lib/market";
 import { dateLabel, decimalInput, money, monthLabel } from "@/lib/format";
 import { catalogInstitution, searchInstitutionCatalog } from "@/domain/institution-catalog";
 import { cardInvoices, payCardInvoice, recordCardPurchase } from "@/domain/cards";
+import { CreditCardVisual } from "@/features/finance/CreditCardVisual";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
 import { Button, buttonClassName, IconButton } from "@/shared/ui/Button";
@@ -564,13 +565,13 @@ function CreditCardsView() {
     <div className="panel-heading"><div><span className="eyebrow">Crédito</span><h2>Cartões e faturas</h2></div><Button onClick={() => { setEditing(undefined); setOpen(true); }}><Plus />Novo cartão</Button></div>
     <div className="entity-grid institutions">{active.length ? active.map((card) => {
       const upcoming = cardInvoices(state, card.id).find((item) => !item.paidEntryId);
-      return <article className="entity-card" key={card.id}><header><span className="entity-symbol"><WalletCards /></span><div><h2>{card.name}</h2><p>Fecha dia {card.closingDay} · vence dia {card.dueDay}</p></div><div className="row-actions"><IconButton label={`Editar cartão ${card.name}`} onClick={() => { setEditing(card); setOpen(true); }}><Pencil /></IconButton></div></header><div className="balance"><span>Limite</span><strong>{money(card.limit, card.currency)}</strong><small>{upcoming ? `Fatura: ${money(upcoming.total, card.currency)} em ${dateLabel(upcoming.dueDate)}` : "Sem faturas abertas"}</small></div></article>;
+      return <article className="entity-card credit-card-record" key={card.id}><CreditCardVisual card={card} /><header><div><h2>{card.name}</h2><p>Fecha dia {card.closingDay} · vence dia {card.dueDay}</p></div><div className="row-actions"><IconButton label={`Editar cartão ${card.name}`} onClick={() => { setEditing(card); setOpen(true); }}><Pencil /></IconButton></div></header><div className="balance"><span>Limite</span><strong>{money(card.limit, card.currency)}</strong><small>{upcoming ? `Fatura: ${money(upcoming.total, card.currency)} em ${dateLabel(upcoming.dueDate)}` : "Sem faturas abertas"}</small></div></article>;
     }) : <Empty title="Nenhum cartão" description="Cadastre um cartão para registrar compras, parcelas e faturas." />}</div>
     {open && <CreditCardDialog value={editing} institutions={state.institutions} onClose={() => setOpen(false)} onSave={async (card) => { await commit((draft) => { const index = draft.creditCards.findIndex((item) => item.id === card.id); if (index >= 0) draft.creditCards[index] = card; else draft.creditCards.push(card); }); setOpen(false); }} />}
   </section>;
 }
 
-function CreditCardDialog({ value, institutions, onClose, onSave }: { value?: CreditCard; institutions: Institution[]; onClose: () => void; onSave: (value: CreditCard) => Promise<void>; }) {
+function LegacyCreditCardDialog({ value, institutions, onClose, onSave }: { value?: CreditCard; institutions: Institution[]; onClose: () => void; onSave: (value: CreditCard) => Promise<void>; }) {
   return <Modal title={value ? "Editar cartão" : "Novo cartão"} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const timestamp = now(); void onSave({ id: value?.id ?? uid("card"), name: String(data.get("name")), issuerName: String(data.get("issuerName") || "") || undefined, payerInstitutionId: String(data.get("payerInstitutionId") || "") || undefined, limit: decimalInput(data.get("limit")), closingDay: Number(data.get("closingDay")), dueDay: Number(data.get("dueDay")), currency: String(data.get("currency") || "BRL").toUpperCase(), notes: String(data.get("notes") || "") || undefined, createdAt: value?.createdAt ?? timestamp, updatedAt: timestamp }); }}>
     <Field label="Nome"><input required name="name" defaultValue={value?.name} /></Field><Field label="Emissor"><input name="issuerName" defaultValue={value?.issuerName} /></Field>
     <Field label="Conta pagadora"><CustomSelect label="Conta pagadora" name="payerInstitutionId" defaultValue={value?.payerInstitutionId ?? ""} items={[...emptyOption("Definir ao pagar"), ...institutionOptions(institutions)]} /></Field>
@@ -804,12 +805,20 @@ function CategoryDialog({ value, onClose, onSave }: { value?: Category; onClose:
   );
 }
 
+function CreditCardDialog({ value, institutions, onClose, onSave }: { value?: CreditCard; institutions: Institution[]; onClose: () => void; onSave: (value: CreditCard) => Promise<void>; }) {
+  return <Modal title={value ? "Editar cartão" : "Novo cartão"} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const timestamp = now(); void onSave({ id: value?.id ?? uid("card"), name: String(data.get("name")), issuer: (String(data.get("issuer") || "other") as CreditCard["issuer"]), issuerName: String(data.get("issuerName") || "") || undefined, lastFour: String(data.get("lastFour") || "").replace(/\D/g, "").slice(-4) || undefined, network: String(data.get("network") || "") || undefined, cardholderName: String(data.get("cardholderName") || "") || undefined, payerInstitutionId: String(data.get("payerInstitutionId") || "") || undefined, limit: decimalInput(data.get("limit")), closingDay: Number(data.get("closingDay")), dueDay: Number(data.get("dueDay")), currency: String(data.get("currency") || "BRL").toUpperCase(), notes: String(data.get("notes") || "") || undefined, createdAt: value?.createdAt ?? timestamp, updatedAt: timestamp }); }}>
+    <Field label="Nome"><input required name="name" defaultValue={value?.name} /></Field><Field label="Instituição emissora"><CustomSelect label="Instituição emissora" name="issuer" defaultValue={value?.issuer ?? "other"} items={[["other", "Outra"], ...searchInstitutionCatalog("").map((item) => [item.id, item.name] as const)]} /></Field><Field label="Nome do emissor"><input name="issuerName" defaultValue={value?.issuerName} /></Field><Field label="Últimos 4 dígitos"><input name="lastFour" inputMode="numeric" maxLength={4} defaultValue={value?.lastFour} /></Field><Field label="Bandeira"><input name="network" defaultValue={value?.network} /></Field><Field label="Titular"><input name="cardholderName" defaultValue={value?.cardholderName} /></Field><Field label="Conta pagadora"><CustomSelect label="Conta pagadora" name="payerInstitutionId" defaultValue={value?.payerInstitutionId ?? ""} items={[...emptyOption("Definir ao pagar"), ...institutionOptions(institutions)]} /></Field><Field label="Limite"><input required name="limit" inputMode="decimal" defaultValue={value?.limit ?? "0"} /></Field><Field label="Fechamento"><input required name="closingDay" min="1" max="31" type="number" defaultValue={value?.closingDay ?? 10} /></Field><Field label="Vencimento"><input required name="dueDay" min="1" max="31" type="number" defaultValue={value?.dueDay ?? 20} /></Field><Field label="Moeda"><input required name="currency" maxLength={5} defaultValue={value?.currency ?? "BRL"} /></Field><Field className="full" label="Observações"><textarea name="notes" rows={3} defaultValue={value?.notes} /></Field><div className="form-actions full"><Button type="submit">Salvar cartão</Button></div>
+  </form></Modal>;
+}
+
 export function ImportView() {
   const { state, commit } = useFinance();
   const { notify } = useFeedback();
   const [candidates, setCandidates] = useState<ImportCandidate[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [validation, setValidation] = useState<ImportAnalysis["validation"]>();
+  const [document, setDocument] = useState<ImportAnalysis["document"]>();
+  const [creditCardId, setCreditCardId] = useState("");
   const [busy, setBusy] = useState<string>();
   // A importação acontece em duas etapas: primeiro editar e selecionar, depois confirmar.
   const [step, setStep] = useState<"review" | "confirm">("review");
@@ -857,6 +866,8 @@ export function ImportView() {
     ...(selected.length ? [] : ["Selecione ao menos uma movimentação para importar."]),
     ...(incomplete.length ? [`${incomplete.length} movimentação(ões) sem data, descrição ou valor: ${namesOf(incomplete)}.`] : []),
     ...(missingRate.length ? [`Informe a cotação em BRL de ${[...new Set(missingRate.map((item) => item.currency))].join(", ")} nas linhas destacadas.`] : []),
+    ...(document?.requiresCard && !creditCardId ? ["Selecione ou cadastre o cartão desta importação antes de continuar."] : []),
+    ...(document && state.importedDocuments.some((item) => item.contentHash === document.contentHash) ? ["Este documento já foi importado."] : []),
   ];
   const blockedIds = new Set([...incomplete, ...missingRate].map((item) => item.id));
   const advance = () => {
@@ -869,6 +880,8 @@ export function ImportView() {
     setCandidates([]);
     setWarnings([]);
     setValidation(undefined);
+    setDocument(undefined);
+    setCreditCardId("");
     setBatch({ kind: "", categoryId: "", institutionId: "" });
     setShowBlockers(false);
     setStep("review");
@@ -881,6 +894,7 @@ export function ImportView() {
     setBusy("Lendo arquivo");
     try {
       const result = await analyzeFile(file, state, { onProgress: (progress) => setBusy(progress.message) });
+      setDocument(result.document);
       const currencies = [...new Set(result.candidates.map((item) => item.currency).filter((currency) => currency !== "BRL"))];
       const rates = new Map<string, string>([["BRL", "1"]]);
       const rateWarnings: string[] = [];
@@ -915,6 +929,8 @@ export function ImportView() {
       return;
     }
     await commit((draft) => {
+      const importedDocumentId = document ? uid("import-document") : undefined;
+      if (document && importedDocumentId) draft.importedDocuments.push({ id: importedDocumentId, kind: document.kind, contentHash: document.contentHash, source: document.source, creditCardId: creditCardId || undefined, createdAt: now(), updatedAt: now() });
       const createdInstitutions = new Map<string, string>();
       for (const item of candidates.filter(
         (candidate) => candidate.include,
@@ -955,10 +971,20 @@ export function ImportView() {
           kind: item.kind,
           categoryId: item.categoryId,
           institutionId,
+          creditCardId: document?.requiresCard ? creditCardId : undefined,
+          importedDocumentId,
           source: "import",
           fingerprint: importFingerprint(institutionId, item.date, item.description, item.amount, item.kind),
           notes: `${item.externalId ? `external:${item.externalId} ` : ""}Importado por ${item.parser}`.trim(),
         });
+        if (document?.requiresCard && item.cardTransactionKind && creditCardId) {
+          const card = draft.creditCards.find((value) => value.id === creditCardId);
+          if (card) draft.cardPurchases.push({
+            id: uid("card-transaction"), cardId: card.id, description: item.description, amount: new Decimal(entry.amount).abs().toString(), currency: entry.currency,
+            date: item.date, categoryId: item.categoryId, installments: 1, installmentNumber: item.installmentNumber, totalInstallments: item.totalInstallments,
+            transactionKind: item.cardTransactionKind, importedDocumentId, firstInvoiceKey: `${card.id}:${item.date.slice(0, 7)}`, ledgerEntryId: entry.id, createdAt: now(), updatedAt: now(),
+          });
+        }
         if (item.categoryId && (item.categoryId !== item.suggestedCategoryId || item.kind !== item.suggestedKind)) learnClassificationRule(draft, entry);
         if (item.createInvestment && item.kind === "investment") {
           const amount = new Decimal(item.amount).abs().toString();
@@ -1044,6 +1070,7 @@ export function ImportView() {
       )}
       {candidates.length > 0 && step === "review" && (
         <>
+          {document?.requiresCard && <div className="import-batch"><Field label="Cartão da fatura"><CustomSelect label="Cartão da fatura" value={creditCardId} onChange={setCreditCardId} items={[...emptyOption("Selecione o cartão"), ...state.creditCards.filter((card) => !card.archivedAt).map((card) => [card.id, `${card.name}${card.lastFour ? ` •••• ${card.lastFour}` : ""}`] as const)]} /></Field><p className="form-hint">O arquivo não contém identificadores suficientes para associação automática.</p></div>}
           <div className="import-batch">
             <div className="import-batch-head">
               <div>
@@ -2346,6 +2373,9 @@ const entryKindLabel = (kind: EntryKind) =>
     credit_payment: "Pagamento de fatura",
     reserve: "Reserva",
     card_purchase: "Compra no cartão",
+    card_refund: "Estorno do cartão",
+    card_fee: "Tarifa do cartão",
+    card_interest: "Juros do cartão",
     pix: "Pix",
     adjustment: "Ajuste",
   })[kind];

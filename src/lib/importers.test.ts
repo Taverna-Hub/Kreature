@@ -52,8 +52,21 @@ describe("StatementImport", () => {
   it("reconhece CSV Nubank e o identificador da operação", async () => {
     const state = emptyFinanceState();
     const csv = "Data,Valor,Identificador,Descrição\n01/05/2026,-52.50,uuid-1,Transferência enviada pelo Pix - Loja";
-    const result = await analyzeFile(new File([csv], "NU_extrato.csv", { type: "text/csv" }), state);
+    const content = `${csv}\nNubank`;
+    const result = await analyzeFile(new File([content], "arquivo.csv", { type: "text/csv" }), state);
     expect(result.institutionHint).toBe("nubank");
     expect(result.candidates[0]).toMatchObject({ externalId: "uuid-1", kind: "pix", description: "Pix enviado · Loja" });
+  });
+
+  it("reconhece CSV de cartão pelo conteúdo e nunca pelo nome", async () => {
+    const state = emptyFinanceState();
+    const csv = "date,title,amount\n2026-04-25,Estorno de Loja,- 47,99\n2026-04-01,Loja - Parcela 1/2,52,65\n2026-04-07,Pagamento recebido,- 80,00";
+    const result = await analyzeFile(new File([csv], "arquivo-qualquer.csv", { type: "text/csv" }), state);
+    expect(result.document).toMatchObject({ kind: "card_statement", requiresCard: true });
+    expect(result.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "card_refund", cardTransactionKind: "refund" }),
+      expect.objectContaining({ kind: "card_purchase", installmentNumber: 1, totalInstallments: 2 }),
+      expect.objectContaining({ kind: "credit_payment" }),
+    ]));
   });
 });

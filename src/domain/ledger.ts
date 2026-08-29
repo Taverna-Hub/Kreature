@@ -13,7 +13,7 @@ export type EntryInput = Omit<
   ignoredFromAnalytics?: boolean;
 };
 
-const negativeKinds = new Set(["expense", "investment", "reserve", "credit_payment", "card_purchase"]);
+const negativeKinds = new Set(["expense", "investment", "reserve", "credit_payment", "card_purchase", "card_fee", "card_interest"]);
 /**
  * A categoria é a classificação mais específica que o usuário deu: uma categoria de despesa
  * nunca resulta em valor positivo, nem uma de receita em valor negativo. Sem categoria, o tipo

@@ -13,6 +13,9 @@ export type EntryKind =
   | "transfer"
   | "pix"
   | "card_purchase"
+  | "card_refund"
+  | "card_fee"
+  | "card_interest"
   | "credit_payment"
   | "adjustment";
 export type InvestmentType =
@@ -111,6 +114,7 @@ export interface LedgerEntry {
   assetId?: string;
   creditCardId?: string;
   cardPurchaseId?: string;
+  importedDocumentId?: string;
   invoiceKey?: string;
   plannedOccurrenceKey?: string;
   source: "manual" | "import" | "planned" | "reconciliation";
@@ -126,6 +130,9 @@ export interface CreditCard {
   name: string;
   issuer?: InstitutionCatalogId | "other";
   issuerName?: string;
+  lastFour?: string;
+  network?: string;
+  cardholderName?: string;
   payerInstitutionId?: string;
   limit: DecimalValue;
   closingDay: number;
@@ -146,10 +153,34 @@ export interface CardPurchase {
   date: string;
   categoryId?: string;
   installments: number;
+  /** The statement can show one installment without exposing the original purchase. */
+  installmentNumber?: number;
+  totalInstallments?: number;
+  transactionKind?: "purchase" | "refund" | "fee" | "interest";
+  importedDocumentId?: string;
   /** A zero based invoice sequence is derived from the purchase's billing cycle. */
   firstInvoiceKey: string;
   notes?: string;
   ledgerEntryId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ImportedDocumentKind = "account_statement" | "card_statement" | "card_invoice";
+
+/** Audit record for an imported file. The original document is never persisted. */
+export interface ImportedDocument {
+  id: string;
+  kind: ImportedDocumentKind;
+  contentHash: string;
+  source: string;
+  institutionId?: InstitutionCatalogId;
+  creditCardId?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  closingDate?: string;
+  dueDate?: string;
+  total?: DecimalValue;
   createdAt: string;
   updatedAt: string;
 }
@@ -236,6 +267,9 @@ export interface ImportCandidate {
   rawText?: string;
   needsReview?: boolean;
   reviewReasons?: string[];
+  cardTransactionKind?: CardPurchase["transactionKind"];
+  installmentNumber?: number;
+  totalInstallments?: number;
 }
 
 export interface FinanceState {
@@ -246,6 +280,7 @@ export interface FinanceState {
   investments: Investment[];
   creditCards: CreditCard[];
   cardPurchases: CardPurchase[];
+  importedDocuments: ImportedDocument[];
   plannedEntries: PlannedEntry[];
   profile: ProfileConfig;
   theme: ThemeMode;

@@ -15,7 +15,8 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const appUrl = () => window.location.origin;
+/** Deploys must declare their canonical public URL; local dev keeps its own origin. */
+export const appUrl = () => (import.meta.env.VITE_APP_URL?.replace(/\/$/, "") || window.location.origin);
 const publicMessage = (fallback: string, cause?: { message?: string; status?: number }) => {
   if (cause?.message && /failed to fetch|network|fetch failed|load failed/i.test(cause.message)) {
     return "Não foi possível conectar ao Supabase. Confira as variáveis públicas do deploy e tente novamente.";
@@ -56,7 +57,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (cause) throw new Error("E-mail ou senha inválidos.");
   }, []);
   const signUp = useCallback(async (displayName: string, email: string, password: string) => {
-    const { error: cause } = await getSupabase().auth.signUp({ email, password, options: { data: { display_name: displayName }, emailRedirectTo: `${appUrl()}/login` } });
+    const { error: cause } = await getSupabase().auth.signUp({ email, password, options: { data: { display_name: displayName }, emailRedirectTo: `${appUrl()}/auth/callback` } });
     if (cause) throw new Error("Não foi possível criar sua conta. Revise os dados e tente novamente.");
   }, []);
   const signOut = useCallback(async () => {
@@ -64,7 +65,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (cause) throw new Error("Não foi possível encerrar sua sessão.");
   }, []);
   const sendPasswordReset = useCallback(async (email: string) => {
-    const { error: cause } = await getSupabase().auth.resetPasswordForEmail(email, { redirectTo: `${appUrl()}/redefinir-senha` });
+    const { error: cause } = await getSupabase().auth.resetPasswordForEmail(email, { redirectTo: `${appUrl()}/auth/callback?next=/redefinir-senha` });
     if (cause) throw new Error("Não foi possível enviar o e-mail de recuperação.");
   }, []);
   const updatePassword = useCallback(async (password: string) => {

@@ -8,6 +8,7 @@ import { analyzePdfStatement, parsePdfPages } from "./statement-import/pdf-pipel
 import type { StatementProgress } from "./statement-import/types";
 import { validateStatementBalances, type StatementValidation } from "./statement-import/validation";
 import { detectImportDuplicate } from "./statement-import/duplicate-detector";
+import { classifyCardCsvRow, contentHash, isLikelyCardCsv } from "./statement-import/document-import";
 
 export type ImportAnalysis = {
   source: string;
@@ -16,6 +17,7 @@ export type ImportAnalysis = {
   candidates: ImportCandidate[];
   warnings: string[];
   validation?: StatementValidation;
+  document?: { kind: "account_statement" | "card_statement" | "card_invoice"; contentHash: string; source: string; requiresCard?: boolean };
 };
 
 export type ImportAnalysisOptions = { onProgress?: (progress: StatementProgress) => void };
@@ -133,7 +135,20 @@ function validRows(rows: ParsedRow[], state: FinanceState, parser: string, hint?
 
 function parseCsv(text: string, state: FinanceState, name: string): ImportAnalysis {
   const parsed = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true });
-  const hint = /^nu[_-]/i.test(name) ? "nubank" : detectInstitution(`${name}\n${text.slice(0, 800)}`);
+  const headers = Object.keys(parsed.data[0] ?? {}).map(normalize);
+  const cardRows = parsed.data.map((raw) => {
+    const row = Object.fromEntries(Object.entries(raw).map(([key, value]) => [normalize(key), value]));
+    return { date: parseDate(row.data ?? row.date ?? row["data da transacao"]), description: String(row.descricao ?? row.description ?? row.title ?? row.historico ?? row.lancamento ?? "").trim(), amount: parseAmount(row.valor ?? row.value ?? row.amount), currency: detectCurrency(String(row.moeda ?? row.currency ?? "")) };
+  });
+  if (isLikelyCardCsv(headers, cardRows)) {
+    const candidates = cardRows.filter((row) => row.date && row.description && !new Decimal(row.amount).isZero()).map((row) => {
+      const card = classifyCardCsvRow(row);
+      const result = candidate({ ...row, amount: new Decimal(row.amount).abs().toString() }, state, "cartao-csv");
+      return { ...result, ...card, kind: card.kind, suggestedKind: card.kind, include: !result.duplicate, needsReview: false, reason: "CSV de cartão provável; selecione o cartão antes de confirmar." };
+    });
+    return { source: "cartao-csv", currency: "BRL", candidates, warnings: ["O arquivo não contém emissor, cartão, período ou vencimento. Selecione o cartão manualmente."], document: { kind: "card_statement", contentHash: contentHash(text), source: "nubank-card-csv", requiresCard: true } };
+  }
+  const hint = detectInstitution(text.slice(0, 1600));
   const rows = parsed.data.map((raw) => {
     const row = Object.fromEntries(Object.entries(raw).map(([key, value]) => [normalize(key), value]));
     return { date: parseDate(row.data ?? row.date ?? row["data da transacao"]), description: String(row.descricao ?? row.description ?? row.historico ?? row.lancamento ?? "").trim(), amount: parseAmount(row.valor ?? row.value ?? row.amount), externalId: String(row.identificador ?? row.id ?? row["id da operacao"] ?? "") || undefined, currency: detectCurrency(String(row.moeda ?? row.currency ?? "")) };

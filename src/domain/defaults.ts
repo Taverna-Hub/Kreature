@@ -50,6 +50,7 @@ export function emptyFinanceState(): FinanceState {
     investments: [],
     creditCards: [],
     cardPurchases: [],
+    importedDocuments: [],
     plannedEntries: [],
     profile: DEFAULT_PROFILE,
     theme: "light",

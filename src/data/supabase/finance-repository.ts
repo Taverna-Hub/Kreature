@@ -7,6 +7,7 @@ import type {
   FinanceState,
   Institution,
   Investment,
+  ImportedDocument,
   LedgerEntry,
   PlannedEntry,
 } from "@/domain/types";
@@ -23,6 +24,7 @@ type TableName =
   | "credit_cards"
   | "ledger_entries"
   | "card_purchases"
+  | "imported_documents"
   | "classification_rules"
   | "planned_entries";
 type CatalogRow = { id: string; slug: string; name: string; type: Institution["type"]; bank_code: string | null; logo_key: string };
@@ -58,9 +60,9 @@ function databaseMessage(context: string, cause: { code?: string; message?: stri
 export class SupabaseFinanceRepository implements FinanceRepository {
   async load(): Promise<FinanceState> {
     await this.userId();
-    const [profileRows, categoryRows, accountRows, investmentRows, cardRows, entryRows, purchaseRows, ruleRows, planRows, catalogRows] = await Promise.all([
+    const [profileRows, categoryRows, accountRows, investmentRows, cardRows, entryRows, purchaseRows, documentRows, ruleRows, planRows, catalogRows] = await Promise.all([
       this.rows("profiles"), this.rows("categories"), this.rows("financial_accounts"), this.rows("investments"), this.rows("credit_cards"),
-      this.rows("ledger_entries"), this.rows("card_purchases"), this.rows("classification_rules"), this.rows("planned_entries"), this.catalogRows(),
+      this.rows("ledger_entries"), this.rows("card_purchases"), this.rows("imported_documents"), this.rows("classification_rules"), this.rows("planned_entries"), this.catalogRows(),
     ]);
     const catalogById = new Map(catalogRows.map((row) => [row.id, row]));
     const profile = profileRows[0];
@@ -76,6 +78,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
       creditCards: cardRows.map((row) => this.card(row, catalogById)),
       entries: entryRows.map(this.entry),
       cardPurchases: purchaseRows.map(this.purchase),
+      importedDocuments: documentRows.map(this.document),
       plannedEntries: planRows.map(this.plan),
     };
   }
@@ -153,6 +156,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
     const catalog = catalogById.get(asString(row.issuer_institution_id));
     return {
       id: asString(row.id), name: asString(row.name), issuer: (catalog?.slug ?? "other") as CreditCard["issuer"], issuerName: asOptionalString(row.issuer_name),
+      lastFour: asOptionalString(row.last_four), network: asOptionalString(row.network), cardholderName: asOptionalString(row.cardholder_name),
       payerInstitutionId: asOptionalString(row.payer_account_id), limit: asNumberString(row.credit_limit), closingDay: Number(row.closing_day),
       dueDay: Number(row.due_day), currency: asString(row.currency, "BRL"), notes: asOptionalString(row.notes), archivedAt: asOptionalString(row.archived_at),
       createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
@@ -163,7 +167,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
     id: asString(row.id), date: asDate(row.occurred_on), description: asString(row.description), amount: asNumberString(row.amount), currency: asString(row.currency, "BRL"),
     brlAmount: asNumberString(row.brl_amount), kind: asString(row.kind) as LedgerEntry["kind"], categoryId: asOptionalString(row.category_id),
     institutionId: asOptionalString(row.account_id), transferGroupId: asOptionalString(row.transfer_group_id), investmentId: asOptionalString(row.investment_id),
-    creditCardId: asOptionalString(row.credit_card_id), invoiceKey: asOptionalString(row.invoice_key), plannedOccurrenceKey: asOptionalString(row.planned_occurrence_key),
+    creditCardId: asOptionalString(row.credit_card_id), importedDocumentId: asOptionalString(row.imported_document_id), invoiceKey: asOptionalString(row.invoice_key), plannedOccurrenceKey: asOptionalString(row.planned_occurrence_key),
     source: asString(row.source, "manual") as LedgerEntry["source"], ignoredFromAnalytics: Boolean(row.ignored_from_analytics), notes: asOptionalString(row.notes),
     fingerprint: asOptionalString(row.fingerprint), createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
   });
@@ -171,8 +175,12 @@ export class SupabaseFinanceRepository implements FinanceRepository {
   private purchase = (row: Row): CardPurchase => ({
     id: asString(row.id), cardId: asString(row.card_id), ledgerEntryId: asString(row.ledger_entry_id), description: asString(row.description),
     amount: asNumberString(row.amount), currency: asString(row.currency, "BRL"), date: asDate(row.occurred_on), categoryId: asOptionalString(row.category_id),
-    installments: Number(row.installments), firstInvoiceKey: asString(row.first_invoice_key), notes: asOptionalString(row.notes),
+    installments: Number(row.installments), installmentNumber: typeof row.installment_number === "number" ? row.installment_number : undefined, totalInstallments: typeof row.total_installments === "number" ? row.total_installments : undefined, transactionKind: asOptionalString(row.transaction_kind) as CardPurchase["transactionKind"], importedDocumentId: asOptionalString(row.imported_document_id), firstInvoiceKey: asString(row.first_invoice_key), notes: asOptionalString(row.notes),
     createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
+  });
+
+  private document = (row: Row): ImportedDocument => ({
+    id: asString(row.id), kind: asString(row.kind) as ImportedDocument["kind"], contentHash: asString(row.content_hash), source: asString(row.source), creditCardId: asOptionalString(row.credit_card_id), periodStart: asOptionalString(row.period_start), periodEnd: asOptionalString(row.period_end), closingDate: asOptionalString(row.closing_date), dueDate: asOptionalString(row.due_date), total: asOptionalString(row.total), createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
   });
 
   private rule = (row: Row): ClassificationRule => ({
@@ -207,19 +215,21 @@ export class SupabaseFinanceRepository implements FinanceRepository {
     })));
     await this.sync("credit_cards", previous.creditCards, next.creditCards, next.creditCards.map((item) => ({
       id: item.id, user_id: userId, name: item.name, issuer_institution_id: nullable(item.issuer && item.issuer !== "other" ? catalogIdBySlug.get(item.issuer) : undefined),
-      issuer_name: nullable(item.issuerName), payer_account_id: nullable(item.payerInstitutionId), credit_limit: item.limit, closing_day: item.closingDay, due_day: item.dueDay,
+      issuer_name: nullable(item.issuerName), last_four: nullable(item.lastFour), network: nullable(item.network), cardholder_name: nullable(item.cardholderName), payer_account_id: nullable(item.payerInstitutionId), credit_limit: item.limit, closing_day: item.closingDay, due_day: item.dueDay,
       currency: item.currency, notes: nullable(item.notes), archived_at: nullable(item.archivedAt), created_at: item.createdAt,
     })));
+    await this.sync("imported_documents", previous.importedDocuments, next.importedDocuments, next.importedDocuments.map((item) => ({ id: item.id, user_id: userId, kind: item.kind, content_hash: item.contentHash, source: item.source, credit_card_id: nullable(item.creditCardId), period_start: nullable(item.periodStart), period_end: nullable(item.periodEnd), closing_date: nullable(item.closingDate), due_date: nullable(item.dueDate), total: nullable(item.total), created_at: item.createdAt })));
     await this.sync("ledger_entries", previous.entries, next.entries, next.entries.map((item) => ({
       id: item.id, user_id: userId, account_id: nullable(item.institutionId), category_id: nullable(item.categoryId), investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId),
-      transfer_group_id: nullable(item.transferGroupId), occurred_on: item.date.slice(0, 10), occurred_at: item.date.includes("T") ? item.date : null, description: item.description,
+      transfer_group_id: nullable(item.transferGroupId), imported_document_id: nullable(item.importedDocumentId), occurred_on: item.date.slice(0, 10), occurred_at: item.date.includes("T") ? item.date : null, description: item.description,
       amount: item.amount, currency: item.currency, brl_amount: item.brlAmount, kind: item.kind, invoice_key: nullable(item.invoiceKey), planned_occurrence_key: nullable(item.plannedOccurrenceKey),
       source: item.source, ignored_from_analytics: item.ignoredFromAnalytics, notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), created_at: item.createdAt,
     })));
     await this.sync("card_purchases", previous.cardPurchases, next.cardPurchases, next.cardPurchases.map((item) => ({
       id: item.id, user_id: userId, card_id: item.cardId, ledger_entry_id: item.ledgerEntryId, description: item.description, amount: item.amount, currency: item.currency,
-      occurred_on: item.date, category_id: nullable(item.categoryId), installments: item.installments, first_invoice_key: item.firstInvoiceKey, notes: nullable(item.notes), created_at: item.createdAt,
+      occurred_on: item.date, category_id: nullable(item.categoryId), installments: item.installments, installment_number: item.installmentNumber ?? null, total_installments: item.totalInstallments ?? null, transaction_kind: item.transactionKind ?? "purchase", imported_document_id: nullable(item.importedDocumentId), first_invoice_key: item.firstInvoiceKey, notes: nullable(item.notes), created_at: item.createdAt,
     })));
+    await this.sync("imported_documents", previous.importedDocuments, next.importedDocuments, next.importedDocuments.map((item) => ({ id: item.id, user_id: userId, kind: item.kind, content_hash: item.contentHash, source: item.source, credit_card_id: nullable(item.creditCardId), period_start: nullable(item.periodStart), period_end: nullable(item.periodEnd), closing_date: nullable(item.closingDate), due_date: nullable(item.dueDate), total: nullable(item.total), created_at: item.createdAt })));
     await this.sync("classification_rules", previous.classificationRules, next.classificationRules, next.classificationRules.map((item) => ({
       id: item.id, user_id: userId, match: item.match, category_id: item.categoryId, flow: item.kind, created_at: item.createdAt,
     })));

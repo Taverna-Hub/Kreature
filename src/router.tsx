@@ -3,6 +3,7 @@ import { createRootRoute, createRoute, createRouter, redirect, Outlet } from "@t
 import { AppShell } from "@/app/AppShell";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
+import { AuthCallbackPage } from "@/features/auth/AuthCallbackPage";
 
 function lazyPage(load: () => Promise<{ default: ComponentType }>) {
   const LazyPage = lazy(load);
@@ -25,6 +26,7 @@ const login = createRoute({
   component: LoginPage,
 });
 const resetPassword = createRoute({ getParentRoute: () => root, path: "/redefinir-senha", component: ResetPasswordPage });
+const authCallback = createRoute({ getParentRoute: () => root, path: "/auth/callback", component: AuthCallbackPage });
 const authenticated = createRoute({
   getParentRoute: () => root,
   id: "authenticated",
@@ -70,6 +72,7 @@ const profile = createRoute({
 const routeTree = root.addChildren([
   login,
   resetPassword,
+  authCallback,
   authenticated.addChildren([index, summary, launches, institutions, investments, planning, profile]),
 ]);
 export const router = createRouter({ routeTree, defaultPreload: "intent" });
