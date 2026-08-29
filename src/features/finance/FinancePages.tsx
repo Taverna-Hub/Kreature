@@ -15,7 +15,6 @@ import {
   Trash2,
   TrendingUp,
   Undo2,
-  WalletCards,
 } from "lucide-react";
 import Decimal from "decimal.js";
 import { useFinance } from "@/data/finance-context";
@@ -86,8 +85,6 @@ const entryFormKindOptions = [
   ["investment_withdrawal", "Resgatar investimento"],
   ["income", "Entrada"],
   ["expense", "Despesa"],
-  ["investment", "Economia / aplicação"],
-  ["reserve", "Reserva"],
   ["pix", "Pix"],
   ["transfer", "Transferência"],
   ["card_purchase", "Compra no cartão"],
@@ -97,7 +94,7 @@ const importKindOptions = [
   ["internal_transfer", "Transferência interna"],
   ["income", "Entrada"],
   ["expense", "Despesa"],
-  ["investment", "Investimento"],
+  ["investment_contribution", "Aplicar em investimento"],
   ["transfer", "Transferência"],
   ["pix", "Pix"],
   ["credit_payment", "Pagamento de fatura"],
@@ -135,7 +132,7 @@ const withImportKind = (item: ImportCandidate, kind: EntryKind): ImportCandidate
   let amount = item.amount;
   try {
     const absolute = new Decimal(item.amount || 0).abs();
-    amount = kind === "income" ? absolute.toString() : kind === "expense" || kind === "credit_payment" || kind === "investment" ? absolute.negated().toString() : item.amount;
+    amount = kind === "income" ? absolute.toString() : kind === "expense" || kind === "credit_payment" || kind === "investment_contribution" ? absolute.negated().toString() : item.amount;
   } catch { /* A validação antes da confirmação exibirá o erro. */ }
   return { ...item, kind, amount, categoryId: undefined };
 };
@@ -602,14 +599,6 @@ function CreditCardsView() {
   </section>;
 }
 
-function LegacyCreditCardDialog({ value, institutions, onClose, onSave }: { value?: CreditCard; institutions: Institution[]; onClose: () => void; onSave: (value: CreditCard) => Promise<void>; }) {
-  return <Modal title={value ? "Editar cartão" : "Novo cartão"} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const timestamp = now(); void onSave({ id: value?.id ?? uid("card"), name: String(data.get("name")), issuerName: String(data.get("issuerName") || "") || undefined, payerInstitutionId: String(data.get("payerInstitutionId") || "") || undefined, limit: decimalInput(data.get("limit")), closingDay: Number(data.get("closingDay")), dueDay: Number(data.get("dueDay")), currency: String(data.get("currency") || "BRL").toUpperCase(), notes: String(data.get("notes") || "") || undefined, createdAt: value?.createdAt ?? timestamp, updatedAt: timestamp }); }}>
-    <Field label="Nome"><input required name="name" defaultValue={value?.name} /></Field><Field label="Emissor"><input name="issuerName" defaultValue={value?.issuerName} /></Field>
-    <Field label="Conta pagadora"><CustomSelect label="Conta pagadora" name="payerInstitutionId" defaultValue={value?.payerInstitutionId ?? ""} items={[...emptyOption("Definir ao pagar"), ...institutionOptions(institutions)]} /></Field>
-    <Field label="Limite"><input required name="limit" inputMode="decimal" defaultValue={value?.limit ?? "0"} /></Field><Field label="Fechamento"><input required name="closingDay" min="1" max="31" type="number" defaultValue={value?.closingDay ?? 10} /></Field><Field label="Vencimento"><input required name="dueDay" min="1" max="31" type="number" defaultValue={value?.dueDay ?? 20} /></Field><Field label="Moeda"><input required name="currency" maxLength={5} defaultValue={value?.currency ?? "BRL"} /></Field><Field className="full" label="Observações"><textarea name="notes" rows={3} defaultValue={value?.notes} /></Field><div className="form-actions full"><Button type="submit">Salvar cartão</Button></div>
-  </form></Modal>;
-}
-
 function HistoryView({ state }: { state: FinanceState }) {
   const history = monthlyHistory(state);
   return (
@@ -994,7 +983,7 @@ export function ImportView() {
             createdInstitutions.set(catalogId, institutionId);
           }
         }
-        if (item.createInvestment && item.kind === "investment" && institutionId) {
+        if (item.createInvestment && item.kind === "investment_contribution" && institutionId) {
           const amount = new Decimal(item.amount).abs().toString();
           const positionKey = rdbPositionKey(institutionId, item.description);
           let investment = positionKey ? draft.investments.find((value) => importedRdbPositionKey(value) === positionKey) : undefined;
@@ -1049,7 +1038,7 @@ export function ImportView() {
           });
         }
         if (item.categoryId && (item.categoryId !== item.suggestedCategoryId || item.kind !== item.suggestedKind)) learnClassificationRule(draft, entry);
-        if (item.createInvestment && item.kind === "investment") {
+        if (item.createInvestment && item.kind === "investment_contribution") {
           const amount = new Decimal(item.amount).abs().toString();
           const positionKey = rdbPositionKey(institutionId, item.description);
           const existing = positionKey
@@ -1244,7 +1233,7 @@ export function ImportView() {
                   <span>{Math.round(item.confidence * 100)}%</span>
                   {item.page && <small>Página {item.page} · {item.extractionSource === "ocr" ? "OCR" : "texto do PDF"}</small>}
                   <small>{item.duplicate ? "Duplicata provável — desmarcada por segurança" : item.similarDuplicate ? "Movimentação parecida já existe — revise antes de incluir" : item.reason}</small>
-                  {item.kind === "investment" && (
+                  {item.kind === "investment_contribution" && (
                     <label className="check">
                       <input
                         type="checkbox"
@@ -1895,7 +1884,7 @@ export function InvestmentsPage() {
                     brlRate:
                       draft.institutions.find((item) => item.id === record.institutionId)
                         ?.exchangeRate ?? "1",
-                    kind: "investment",
+                    kind: "investment_contribution",
                     institutionId: record.institutionId,
                     investmentId: record.id,
                   });

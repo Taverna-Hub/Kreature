@@ -35,7 +35,7 @@ export function classifyTransaction(description: string, amount: string, categor
   const text = normalizeClassificationText(description);
   const flow: CategoryFlow = new Decimal(amount).isNegative() ? "expense" : "income";
   if (isInvoicePayment(text)) return { kind: "credit_payment", confidence: .9, reason: "Pagamento de fatura identificado" };
-  if (isInvestment(text)) return { kind: "investment", confidence: .86, reason: "Aplicação financeira identificada" };
+  if (isInvestment(text)) return { kind: "investment_contribution", confidence: .86, reason: "Aplicação financeira identificada" };
   if (isInternal(text)) return { kind: "transfer", confidence: .8, reason: "Transferência identificada" };
 
   const learned = rules.find((rule) => rule.match === text && rule.kind === flow && categories.some((category) => category.id === rule.categoryId && !category.archivedAt));
@@ -67,7 +67,7 @@ export function reclassifyEntries(state: FinanceState) {
     const classification = classifyTransaction(entry.description, entry.amount, state.categories, state.classificationRules);
     entry.kind = classification.kind;
     entry.categoryId = classification.categoryId;
-    entry.ignoredFromAnalytics = classification.kind === "transfer" || classification.kind === "credit_payment";
+    entry.ignoredFromAnalytics = classification.kind === "transfer" || classification.kind === "credit_payment" || classification.kind === "investment_contribution" || classification.kind === "investment_withdrawal";
     entry.updatedAt = now();
   }
 }

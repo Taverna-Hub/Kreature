@@ -149,15 +149,24 @@ export function undoOccurrence(state: FinanceState, planId: string, occurrenceDa
   const movement = entry?.financialMovementId
     ? state.financialMovements.find((item) => item.id === entry.financialMovementId)
     : undefined;
-  if (!entry || !movement) throw new Error("A movimentaÃ§Ã£o realizada nÃ£o estÃ¡ mais disponÃ­vel para desfazer.");
-  const isUntouched =
+  if (!entry) throw new Error("A movimentação realizada não está mais disponível para desfazer.");
+  // Realizations created before the planning snapshot was introduced have no
+  // fingerprint. Their source and one-leg invariant still prove that they are
+  // the untouched automatic entry; only a present fingerprint must match.
+  const fingerprintMatches = !exception.generatedFingerprint || exception.generatedFingerprint === plannedEntryFingerprint(entry);
+  const isUntouched = movement !== undefined &&
     entry.source === "planned" &&
     movement.source === "planned" &&
     !entry.importedDocumentId &&
     !movement.importedDocumentId &&
-    exception.generatedFingerprint === plannedEntryFingerprint(entry) &&
+    fingerprintMatches &&
     state.entries.filter((item) => item.financialMovementId === movement.id).length === 1;
-  if (!isUntouched)
+  const isLegacyUntouched =
+    !entry.financialMovementId &&
+    entry.source === "planned" &&
+    !entry.importedDocumentId &&
+    fingerprintMatches;
+  if (!isUntouched && !isLegacyUntouched)
     throw new Error("NÃ£o Ã© possÃ­vel desfazer: a movimentaÃ§Ã£o realizada foi editada, conciliada ou vinculada a outro registro.");
   removeEntry(state, entry.id);
   Object.assign(exception, {

@@ -118,7 +118,7 @@ function candidate(
     suggestedKind: result.kind, suggestedCategoryId: result.categoryId,
     confidence: Math.min(result.confidence, extraction?.confidence ?? 1),
     reason: needsReview ? reviewReasons.join(" ") || result.reason : result.reason,
-    include: !duplicateResult.exact && !duplicateResult.possible && !needsReview, createInvestment: result.kind === "investment", fingerprint: key,
+    include: !duplicateResult.exact && !duplicateResult.possible && !needsReview, createInvestment: result.kind === "investment_contribution", fingerprint: key,
     duplicate: duplicateResult.exact, similarDuplicate: duplicateResult.possible, ...extraction,
   };
 }
@@ -133,7 +133,7 @@ function validRows(rows: ParsedRow[], state: FinanceState, parser: string, hint?
   return { source: parser, institutionHint: hint, currency: candidates[0]?.currency ?? "BRL", candidates, warnings };
 }
 
-function parseCsv(text: string, state: FinanceState, name: string): ImportAnalysis {
+function parseCsv(text: string, state: FinanceState): ImportAnalysis {
   const parsed = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true });
   const headers = Object.keys(parsed.data[0] ?? {}).map(normalize);
   const cardRows = parsed.data.map((raw) => {
@@ -242,8 +242,8 @@ export async function analyzeFile(file: File, state: FinanceState, options?: Imp
   if (file.size > 25 * 1024 * 1024) throw new Error("O arquivo é maior que 25 MB. Escolha um arquivo menor.");
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".ofx") || lower.endsWith(".qfx")) return parseOfx(await readText(file), state);
-  if (lower.endsWith(".csv")) return parseCsv(await readText(file), state, file.name);
-  if (lower.endsWith(".xls") || lower.endsWith(".xlsx")) { const XLSX = await import("xlsx"); const workbook = XLSX.read(await readBuffer(file), { type: "array" }); const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]); return parseCsv(csv, state, file.name); }
+  if (lower.endsWith(".csv")) return parseCsv(await readText(file), state);
+  if (lower.endsWith(".xls") || lower.endsWith(".xlsx")) { const XLSX = await import("xlsx"); const workbook = XLSX.read(await readBuffer(file), { type: "array" }); const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]); return parseCsv(csv, state); }
   if (lower.endsWith(".pdf")) return parsePdfHybrid(file, state, options);
   if (/\.(png|jpe?g|webp)$/i.test(lower)) return parseStatementImage(file, state, options);
   throw new Error("Formato não suportado. Selecione OFX, CSV, XLS, XLSX, PDF ou imagem.");

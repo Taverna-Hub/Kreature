@@ -33,7 +33,7 @@ export function isAnalyticIncome(state: FinanceState, entry: LedgerEntry) {
   return isIncomeMovement({ kind } as FinancialMovement);
 }
 
-export function buildSummary(state: FinanceState, filter: PeriodFilter, _includeInternal = false): Summary {
+export function buildSummary(state: FinanceState, filter: PeriodFilter): Summary {
   const movements = movementsFor(state).filter((item) => matchesPeriod(item.date, filter));
   const income = movements.filter(isIncomeMovement).reduce((sum, item) => sum.plus(item.brlAmount), new Decimal(0));
   const expenses = movements.filter(isExpenseMovement).reduce((sum, item) => sum.plus(item.brlAmount), new Decimal(0));

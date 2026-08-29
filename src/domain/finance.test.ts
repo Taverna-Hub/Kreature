@@ -42,6 +42,18 @@ describe("movimentos patrimoniais", () => {
     expect(buildSummary(state, { mode: "all" })).toMatchObject({ expenses: "0", income: "0", available: "4000", invested: "1000" });
   });
 
+  it("mantém uma aplicação legada fora das despesas antes da migration ser aplicada", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank", "5000"));
+    state.entries.push({
+      id: "legacy-application", date: "2026-08-01", description: "Aplicação CDB", amount: "-1000", brlAmount: "-1000",
+      currency: "BRL", kind: "investment", institutionId: "bank", source: "import", ignoredFromAnalytics: false,
+      createdAt: "2026-08-01", updatedAt: "2026-08-01",
+    });
+
+    expect(buildSummary(state, { mode: "all" })).toMatchObject({ expenses: "0", income: "0", available: "4000" });
+  });
+
   it("separa principal e rendimento no resgate pelo custo mÃ©dio", () => {
     const state = emptyFinanceState();
     state.institutions.push(institution("bank", "0"));
@@ -323,5 +335,32 @@ describe("realizaÃ§Ã£o planejada", () => {
     updateEntry(state, entry.id, { date: entry.date, description: "Conta corrigida", amount: "10", currency: "BRL", kind: "expense", institutionId: "bank" });
     expect(() => undoOccurrence(state, "protected", "2026-08-20")).toThrow("NÃ£o Ã© possÃ­vel desfazer");
     expect(state.entries).toHaveLength(1);
+  });
+
+  it("desfaz uma realizaÃ§Ã£o legada que ainda preserva o movimento automÃ¡tico", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    state.plannedEntries.push({ id: "legacy-planned", startDate: "2026-08-20", description: "Aluguel", amount: "1500", kind: "expense", institutionId: "bank", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    settleOccurrence(state, "legacy-planned", "2026-08-20", { effectiveDate: "2026-08-20" });
+    delete state.plannedEntries[0].exceptions[0].generatedFingerprint;
+
+    undoOccurrence(state, "legacy-planned", "2026-08-20");
+
+    expect(state.entries).toHaveLength(0);
+    expect(state.plannedEntries[0].exceptions[0].settledEntryId).toBeUndefined();
+  });
+
+  it("desfaz uma realização anterior ao cabeçalho de movimento", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(institution("bank"));
+    state.plannedEntries.push({ id: "legacy-without-header", startDate: "2026-08-20", description: "Aluguel", amount: "1500", kind: "expense", institutionId: "bank", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    const entry = settleOccurrence(state, "legacy-without-header", "2026-08-20", { effectiveDate: "2026-08-20" });
+    state.financialMovements = [];
+    delete entry.financialMovementId;
+    delete state.plannedEntries[0].exceptions[0].generatedFingerprint;
+
+    undoOccurrence(state, "legacy-without-header", "2026-08-20");
+
+    expect(state.entries).toHaveLength(0);
   });
 });

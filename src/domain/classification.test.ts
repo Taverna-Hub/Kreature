@@ -14,4 +14,11 @@ describe("classificação local", () => {
     expect(classifyTransaction("Mercado Central", "-40", state.categories, state.classificationRules)).toMatchObject({ kind: "expense", categoryId: compras.id, confidence: .98 });
     expect(classifyTransaction("Mercado do Bairro", "-40", state.categories, state.classificationRules)).toMatchObject({ categoryId: alimentacao.id });
   });
+
+  it("classifica aplicação como movimento patrimonial neutro", () => {
+    const state = emptyFinanceState();
+    expect(classifyTransaction("Aplicação CDB", "-1000", state.categories, state.classificationRules)).toMatchObject({
+      kind: "investment_contribution",
+    });
+  });
 });
