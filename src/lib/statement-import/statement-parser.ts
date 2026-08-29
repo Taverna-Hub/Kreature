@@ -123,7 +123,100 @@ function finalize(
   return { page: input.page, source: input.source, rawText, date, description, amount, direction: inferredDirection, confidence, needsReview, reviewReasons: reasons };
 }
 
-export function parseStatementDocument(inputs: StatementPageInput[]): StatementPageResult[] {
+const caixaHistories = [
+  "PIX ENVIADO",
+  "PIX RECEBIDO",
+  "COMPRA CARTAO DEBITO",
+  "ENVIO TRANSF INTERNET TEV",
+  "TARIFA TRANSF RECURSO E/I",
+  "CREDITO JUROS",
+  "CORRECAO MONETARIA",
+] as const;
+
+const caixaRow = /^(\d{2}\/\d{2}\/\d{4})\s*-\s*\d{2}:\d{2}:\d{2}\s+\d{5,8}\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*([CD])\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*([CD])\s*$/i;
+const caixaSaldoRow = /^(\d{2}\/\d{2}\/\d{4})\s*-\s*00:00:00\s+\d+\s+saldo\s+dia\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*([CD])\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*([CD])\s*$/i;
+
+function caixaDescription(value: string) {
+  const normalized = value.replace(/E\/l\b/gi, "E/I");
+  const history = caixaHistories.find((item) => normalized.toUpperCase().startsWith(item));
+  if (!history) return normalizeText(normalized);
+  const counterparty = normalized.slice(history.length)
+    .replace(/\s+(?:\*+|ARE\b|TR\b|FE\b|THE\b).*/i, "")
+    .replace(/\s+\d{3}[\d*.\s/-]*$/i, "")
+    .trim();
+  return counterparty ? `${history} ${counterparty}` : history;
+}
+
+function caixaMetadata(lines: string[]): StatementMetadata {
+  const text = lines.join("\n");
+  const period = text.match(/per[ií]odo\s+dos\s+lan[cç]amentos\s+(\d{2}\/\d{2}\/\d{4})\s+at[ée]\s+(\d{2}\/\d{2}\/\d{4})/i);
+  const metadata: StatementMetadata = {};
+  if (period) {
+    metadata.periodStart = parseDate(period[1], metadata);
+    metadata.periodEnd = parseDate(period[2], metadata);
+  }
+  const opening = text.match(/saldo\s+anterior\s+(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})\s*([CD])/i);
+  if (opening) metadata.openingBalance = parseAmount(`${opening[1]} ${opening[2]}`)?.amount;
+  const balanceRows = lines.map((line) => line.match(caixaSaldoRow)).filter((match): match is RegExpMatchArray => Boolean(match));
+  const afterPeriod = balanceRows.find((match) => {
+    const date = parseDate(match[1], metadata);
+    return Boolean(date && metadata.periodEnd && date > metadata.periodEnd);
+  }) ?? balanceRows[0];
+  if (afterPeriod) metadata.closingBalance = parseAmount(`${afterPeriod[4]} ${afterPeriod[5]}`)?.amount;
+  return metadata;
+}
+
+function isCaixaDocument(inputs: StatementPageInput[]) {
+  const text = plain(inputs.map((input) => input.text).join("\n"));
+  return text.includes("caixa") && text.includes("extrato por periodo") && text.includes("historico/complemento");
+}
+
+function parseCaixaStatementDocument(inputs: StatementPageInput[]): StatementPageResult[] | undefined {
+  if (!isCaixaDocument(inputs)) return undefined;
+  const lines = inputs.flatMap((input) => input.text.split(/\r?\n/).map(normalizeText).filter(Boolean));
+  const metadata = caixaMetadata(lines);
+  return inputs.map((input, index) => {
+    const transactions: StatementTransaction[] = [];
+    const warnings: string[] = [];
+    for (const line of input.text.split(/\r?\n/).map(normalizeText).filter(Boolean)) {
+      if (caixaSaldoRow.test(line)) continue;
+      const row = line.match(caixaRow);
+      if (!row) {
+        if (/^\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}:\d{2}:\d{2}/.test(line)) warnings.push(`Página ${input.page}: uma linha da tabela CAIXA precisa de revisão.`);
+        continue;
+      }
+      const date = parseDate(row[1], metadata);
+      const parsed = parseAmount(`${row[3]} ${row[4]}`);
+      if (!date || !parsed) {
+        warnings.push(`Página ${input.page}: valor ou data não puderam ser confirmados.`);
+        continue;
+      }
+      const description = caixaDescription(row[2]);
+      const lowOcrConfidence = input.source === "ocr" && (input.ocrConfidence ?? 0) < 70;
+      transactions.push({
+        page: input.page,
+        source: input.source,
+        rawText: line,
+        date,
+        description,
+        amount: parsed.amount,
+        direction: parsed.direction,
+        confidence: lowOcrConfidence ? .62 : input.source === "ocr" ? .86 : .96,
+        needsReview: lowOcrConfidence,
+        reviewReasons: lowOcrConfidence ? ["OCR com confiança baixa nesta página."] : [],
+      });
+    }
+    return {
+      page: input.page,
+      source: input.source,
+      transactions,
+      metadata: index === 0 ? metadata : {},
+      warnings,
+    };
+  });
+}
+
+function parseGenericStatementDocument(inputs: StatementPageInput[]): StatementPageResult[] {
   const documentLines = inputs.flatMap((input) => input.text.split(/\r?\n/).map(normalizeText).filter(Boolean));
   const documentMetadata = metadataFrom(documentLines);
   const transactions: StatementTransaction[] = [];
@@ -166,6 +259,10 @@ export function parseStatementDocument(inputs: StatementPageInput[]): StatementP
     metadata: metadataFrom(input.text.split(/\r?\n/).map(normalizeText).filter(Boolean)),
     warnings: warningsByPage.get(input.page) ?? [],
   }));
+}
+
+export function parseStatementDocument(inputs: StatementPageInput[]): StatementPageResult[] {
+  return parseCaixaStatementDocument(inputs) ?? parseGenericStatementDocument(inputs);
 }
 
 export function parseStatementPage(input: StatementPageInput): StatementPageResult {

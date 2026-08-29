@@ -172,6 +172,15 @@ async function parsePdfHybrid(file: File, state: FinanceState, options?: ImportA
     },
   )));
   const validation = validateStatementBalances(pages, options?.onProgress);
+  if (validation.status === "warning") {
+    for (const item of candidates) {
+      const reviewReasons = [...new Set([...(item.reviewReasons ?? []), validation.message])];
+      item.needsReview = true;
+      item.reviewReasons = reviewReasons;
+      item.reason = reviewReasons.join(" ");
+      item.include = false;
+    }
+  }
   const warnings = [...extracted.warnings, ...pages.flatMap((page) => page.warnings)];
   if (!candidates.length) warnings.push("Nenhuma movimentação confiável foi encontrada. Tente um PDF mais nítido ou registre os itens manualmente.");
   return { source: institutionHint ? `${institutionHint}-pdf` : "pdf-hibrido", institutionHint, currency, candidates, warnings, validation };
