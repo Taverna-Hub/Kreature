@@ -301,3 +301,31 @@ img, svg { max-width: 100%; }
 @media (max-width: 760px) {
   .history-list { grid-template-columns: 1fr; }
 }
+
+/* Auth is deliberately a two-part welcome on large screens, while recovery
+   remains a focused single card. These selectors also prevent native button
+   chrome from leaking into the secondary actions. */
+.login-links { display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; margin-top: -.15rem; }
+.login-links a, .login-link-button { padding: 0; border: 0; background: transparent; color: var(--brand-dark); font: inherit; font-size: .84rem; font-weight: 800; text-decoration: none; cursor: pointer; }
+.login-links a:hover, .login-link-button:hover { color: var(--brand); text-decoration: underline; text-underline-offset: .22rem; }
+.login-links a:focus-visible, .login-link-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 36%, transparent); outline-offset: .3rem; border-radius: .2rem; }
+.login-success { margin: 0; color: var(--teal-deep); font-size: .84rem; font-weight: 750; }
+
+@media (min-width: 761px) {
+  .login-card:not(.login-card--auth) { display: block; width: min(100%, 440px); }
+  .login-card:not(.login-card--auth) .login-main { min-height: 0; padding: clamp(1.5rem, 4vw, 2.35rem); }
+  .login-card--auth { grid-template-columns: 1.12fr .88fr; }
+  .login-card--auth .login-main { min-height: 560px; }
+  .login-card--auth .login-welcome { display: grid; align-content: space-between; justify-items: start; gap: 2rem; padding: 3.6rem; background: linear-gradient(145deg, #ff8a2a, #ff5b1b 56%, #e94d26); }
+  .login-card--auth .login-welcome::before { top: -5rem; right: -5rem; width: 15rem; height: 15rem; background: color-mix(in srgb, #fff 10%, transparent); }
+  .login-card--auth .login-welcome::after { bottom: -8rem; left: -8rem; width: 20rem; height: 20rem; }
+  .login-welcome-orbit { position: relative; z-index: 1; display: grid; width: 7rem; height: 7rem; place-items: center; border: 1px solid #fff5; border-radius: 2.2rem; background: #fff2; box-shadow: inset 0 1px #fff5; transform: rotate(-8deg); }
+  .login-welcome-orbit::before, .login-welcome-orbit::after { position: absolute; border: 1px solid #fff4; border-radius: 1.5rem; content: ""; }
+  .login-welcome-orbit::before { inset: .75rem; }
+  .login-welcome-orbit::after { inset: 1.45rem; }
+  .login-welcome-orbit span { display: grid; width: 2.65rem; height: 2.65rem; place-items: center; border-radius: 50%; background: #fff; color: #f26323; box-shadow: 0 .6rem 1.3rem #942c1c33; transform: rotate(8deg); }
+  .login-welcome-orbit svg { width: 1.3rem; }
+  .login-welcome-copy { position: relative; z-index: 1; display: grid; gap: .8rem; }
+  .login-welcome-copy > span { color: #fff9; font-size: .84rem; font-weight: 750; }
+  .login-welcome-copy strong { font-size: clamp(2.2rem, 3.4vw, 3rem); letter-spacing: -.075em; line-height: .9; }
+}
