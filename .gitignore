@@ -11,3 +11,4 @@ extratos
 !.env.example
 *CONTEXT.md
 docs
+.env*
