@@ -12,6 +12,13 @@ export function matchesPeriod(date: string, filter: PeriodFilter): boolean {
   return parsed.getFullYear() === filter.year && parsed.getMonth() + 1 === filter.month;
 }
 
+const monthAbbreviations = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"] as const;
+
+export function previousMonthAbbreviation(filter: PeriodFilter) {
+  if (filter.mode !== "month" || !filter.month) return undefined;
+  return monthAbbreviations[(filter.month + 10) % 12];
+}
+
 const categoryFor = (state: FinanceState, categoryId?: string) =>
   state.categories.find((category) => category.id === categoryId && !category.archivedAt);
 

@@ -32,7 +32,7 @@ import {
   updateEntry,
   type EntryInput,
 } from "@/domain/ledger";
-import { buildSummary, buildSummaryComparison, monthlyHistory } from "@/domain/queries";
+import { buildSummary, buildSummaryComparison, monthlyHistory, previousMonthAbbreviation } from "@/domain/queries";
 import { importedRdbPositionKey, investmentDisplayGroups, investmentMovementAmount, rdbPositionKey } from "@/domain/investment-groups";
 import { learnClassificationRule, normalizeClassificationText } from "@/domain/classification";
 import { suggestInternalTransfer } from "@/domain/internal-transfers";
@@ -178,6 +178,7 @@ export function SummaryPage() {
   });
   const summary = useMemo(() => buildSummary(state, filter), [state, filter]);
   const comparison = useMemo(() => buildSummaryComparison(state, filter), [state, filter]);
+  const comparisonMonth = previousMonthAbbreviation(filter);
   const history = useMemo(() => monthlyHistory(state).slice().reverse().slice(-8), [state]);
   const cards = [
     { key: "available", label: "Disponível", value: summary.available, tone: "available" },
@@ -259,9 +260,9 @@ export function SummaryPage() {
           return <article className={`metric ${tone}`} key={label}>
             <span>{label}</span>
             <strong>{money(value)}</strong>
-            {item ? <small className={`metric-comparison ${direction}`} aria-label={`Variação de ${money(item.delta)} em relação ao mês anterior`}>
-              {delta?.isZero() ? "Sem variação" : `${delta?.isPositive() ? "↑" : "↓"} ${money(delta?.abs().toString() ?? "0")}${item.percentage ? ` (${Number(item.percentage).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)` : ""} vs. mês anterior`}
-            </small> : <small className="metric-comparison muted">Compare no filtro mensal</small>}
+            {item && comparisonMonth ? <small className={`metric-comparison ${direction}`} aria-label={`Variação de ${money(item.delta)} em relação a ${comparisonMonth}`}>
+              {delta?.isZero() ? `Sem variação vs. ${comparisonMonth}` : `${delta?.isPositive() ? "↑" : "↓"} ${money(delta?.abs().toString() ?? "0")}${item.percentage ? ` (${Number(item.percentage).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)` : ""} vs. ${comparisonMonth}`}
+            </small> : null}
           </article>;
         })}
       </section>
@@ -1481,7 +1482,7 @@ export function InstitutionsPage() {
             return (
               <article className="entity-card" key={item.id}>
                 <header>
-                  <span className="entity-symbol"><InstitutionLogo institution={item} size={34} /></span>
+                  <span className={`entity-symbol${item.catalogId === "nubank" ? " entity-symbol-nubank" : ""}`}><InstitutionLogo institution={item} size={34} symbolOnly={item.catalogId === "nubank"} /></span>
                   <div>
                     <h2>{item.name}</h2>
                     <p>
@@ -1802,7 +1803,7 @@ export function InvestmentsPage() {
                     </p>
                   </div>
                   <div className="investment-card-actions">
-                    {institution && <InstitutionLogo institution={institution} size={32} />}
+                    {institution && <InstitutionLogo institution={institution} size={32} symbolOnly={institution.catalogId === "nubank"} />}
                     {isConsolidated && <IconButton
                       label={`Editar detalhes de ${item.name}`}
                       onClick={() => {

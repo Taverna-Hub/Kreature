@@ -452,3 +452,63 @@ img, svg { max-width: 100%; }
   .credit-card-chip { width: 3rem; height: 2.25rem; }
   .credit-card-network-logo.network-mastercard { transform: translateY(-.1rem) scale(1.6); }
 }
+
+/* Cada instituição recebe uma composição própria, mantendo o mesmo sistema de informação. */
+.credit-card-visual > header,
+.credit-card-visual > footer,
+.credit-card-visual > .credit-card-middle { position: relative; z-index: 1; }
+.credit-card-art { position: absolute; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; }
+.credit-card-art span { position: absolute; display: block; border: 1px solid color-mix(in srgb, var(--card-foreground) 30%, transparent); opacity: .72; }
+.credit-card-art span:nth-child(1) { top: -8rem; right: -4rem; width: 18rem; height: 18rem; border-radius: 50%; }
+.credit-card-art span:nth-child(2) { right: 16%; bottom: -5rem; width: 10rem; height: 10rem; border-radius: 2rem; transform: rotate(35deg); }
+.credit-card-art span:nth-child(3) { top: 35%; left: -3rem; width: 8rem; height: 8rem; border-radius: 50%; opacity: .28; }
+.credit-card-art span:nth-child(4) { top: 1.2rem; right: 28%; width: 4rem; height: 4rem; border-width: 2px; border-radius: 1rem; transform: rotate(45deg); opacity: .2; }
+.credit-card-art-nubank span:nth-child(1) { top: -10rem; right: -2rem; width: 21rem; height: 21rem; border-width: 1px; }
+.credit-card-art-nubank span:nth-child(2) { right: 22%; bottom: -7rem; width: 13rem; height: 13rem; border-radius: 50%; transform: none; }
+.credit-card-art-nubank span:nth-child(3) { top: 28%; left: 39%; width: 9rem; height: 9rem; border-radius: 2rem; transform: rotate(45deg); opacity: .18; }
+.credit-card-art-nubank span:nth-child(4) { top: 2rem; right: 18%; width: 5rem; height: 5rem; border-radius: 50%; }
+.credit-card-art-itau span:nth-child(1) { top: -8rem; right: 12%; width: 17rem; height: 17rem; border-radius: 50%; }
+.credit-card-art-itau span:nth-child(2) { right: -2rem; bottom: -1rem; width: 12rem; height: 4.5rem; border-width: 2px; border-radius: 999px; transform: rotate(-16deg); }
+.credit-card-art-itau span:nth-child(3) { top: 41%; left: -3rem; width: 11rem; height: 2.7rem; border-width: 2px; border-radius: 999px; transform: rotate(-16deg); }
+.credit-card-art-itau span:nth-child(4) { top: 22%; right: 31%; width: 3rem; height: 3rem; border-radius: .4rem; transform: rotate(45deg); }
+.credit-card-art-caixa span:nth-child(1) { top: -11rem; right: -4rem; width: 22rem; height: 22rem; border-radius: 50%; }
+.credit-card-art-caixa span:nth-child(2) { right: 16%; bottom: -2rem; width: 6rem; height: 6rem; border-radius: .4rem; transform: rotate(45deg); }
+.credit-card-art-caixa span:nth-child(3) { top: 27%; left: 13%; width: 5rem; height: 5rem; border-radius: .4rem; transform: rotate(45deg); opacity: .18; }
+.credit-card-art-caixa span:nth-child(4) { top: 39%; right: 8%; width: 8rem; height: 1px; border-width: 1px 0 0; transform: rotate(-28deg); }
+.credit-card-mercado-pago { background: linear-gradient(145deg, #050505 0%, #181818 52%, #000 100%); }
+.credit-card-mercado-pago .credit-card-noise { opacity: .08; background: repeating-linear-gradient(135deg, transparent 0 28px, #fff 29px 30px, transparent 31px 64px); }
+.credit-card-art-mercado-pago span:nth-child(1) { top: -9rem; right: -2rem; width: 21rem; height: 21rem; border-color: #d7dde255; border-width: 1px 1px 0 0; }
+.credit-card-art-mercado-pago span:nth-child(2) { right: 12%; bottom: -5rem; width: 14rem; height: 7rem; border-color: #d7dde233; border-width: 1px 0 0; border-radius: 50%; transform: none; }
+.credit-card-art-mercado-pago span:nth-child(3) { top: 34%; left: 29%; width: 7rem; height: 7rem; border-color: #d7dde222; border-radius: 50%; opacity: 1; }
+.credit-card-art-mercado-pago span:nth-child(4) { top: 1.7rem; right: 30%; width: 3.5rem; height: 3.5rem; border-color: #d7dde244; border-radius: 50%; transform: rotate(45deg); }
+.credit-card-issuer-mercado-pago img { width: 4.4rem; height: 2.4rem; object-fit: contain; opacity: .8; }
+.credit-card-art-wise span:nth-child(1) { top: -8rem; right: 7%; width: 16rem; height: 16rem; border-radius: 50%; }
+.credit-card-art-wise span:nth-child(2) { right: -2rem; bottom: -2rem; width: 9rem; height: 9rem; border-radius: 50%; transform: none; }
+.credit-card-art-wise span:nth-child(3) { top: 37%; left: 18%; width: 6rem; height: 6rem; border-radius: 1.2rem; transform: rotate(45deg); }
+.credit-card-art-wise span:nth-child(4) { top: 24%; right: 28%; width: 2rem; height: 2rem; border-radius: 50%; }
+.institution-logo-symbol { object-fit: contain; }
+.entity-symbol-nubank { background: transparent; }
+:root[data-theme="dark"] .institution-logo-nubank { filter: grayscale(1) brightness(0) invert(1); }
+
+.credit-card-inter .credit-card-art span:nth-child(1),
+.credit-card-neon .credit-card-art span:nth-child(1) { top: -7rem; right: 18%; width: 14rem; height: 14rem; border-radius: 50%; }
+.credit-card-inter .credit-card-art span:nth-child(2),
+.credit-card-neon .credit-card-art span:nth-child(2) { right: -2rem; bottom: 1rem; width: 7rem; height: 7rem; border-radius: 50%; transform: none; }
+.credit-card-bradesco .credit-card-art span:nth-child(1),
+.credit-card-santander .credit-card-art span:nth-child(1) { top: -5rem; right: -5rem; width: 13rem; height: 13rem; border-radius: 0 0 0 100%; transform: rotate(18deg); }
+.credit-card-bradesco .credit-card-art span:nth-child(2),
+.credit-card-santander .credit-card-art span:nth-child(2) { right: 30%; bottom: -4rem; width: 15rem; height: 8rem; border-radius: 50%; transform: rotate(-12deg); }
+.credit-card-banco-do-brasil .credit-card-art span:nth-child(1) { top: -10rem; right: 23%; width: 20rem; height: 20rem; border-radius: 50%; border-width: 2px; }
+.credit-card-banco-do-brasil .credit-card-art span:nth-child(2) { right: -2rem; bottom: -1rem; width: 8rem; height: 8rem; border-radius: 0; transform: rotate(45deg); }
+.credit-card-c6 .credit-card-art span:nth-child(1),
+.credit-card-xp .credit-card-art span:nth-child(1) { top: -12rem; right: -6rem; width: 23rem; height: 23rem; border-radius: 50%; border-color: #fff5; }
+.credit-card-c6 .credit-card-art span:nth-child(2),
+.credit-card-xp .credit-card-art span:nth-child(2) { right: 18%; bottom: 1.5rem; width: 5rem; height: 5rem; border-radius: 0; transform: rotate(45deg); }
+.credit-card-rico .credit-card-art span:nth-child(1),
+.credit-card-clear .credit-card-art span:nth-child(1),
+.credit-card-picpay .credit-card-art span:nth-child(1) { top: -6rem; right: 2%; width: 12rem; height: 12rem; border-radius: 50%; }
+.credit-card-rico .credit-card-art span:nth-child(2),
+.credit-card-clear .credit-card-art span:nth-child(2),
+.credit-card-picpay .credit-card-art span:nth-child(2) { right: 42%; bottom: -6rem; width: 16rem; height: 10rem; border-radius: 50%; transform: rotate(22deg); }
+.credit-card-btg-pactual .credit-card-art span:nth-child(1) { top: -7rem; right: 30%; width: 16rem; height: 16rem; border-radius: 50%; }
+.credit-card-btg-pactual .credit-card-art span:nth-child(2) { right: -1rem; bottom: 0; width: 7rem; height: 7rem; border-radius: 1rem; transform: rotate(45deg); }
