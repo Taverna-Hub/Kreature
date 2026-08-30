@@ -57,7 +57,7 @@ import { analyzeFile, cleanTransactionDescription, importFingerprint, type Impor
 import { fetchAssetQuote, fetchExchangeRate } from "@/lib/market";
 import { dateLabel, decimalInput, money, monthLabel } from "@/lib/format";
 import { catalogInstitution, searchInstitutionCatalog } from "@/domain/institution-catalog";
-import { cardInvoices, payCardInvoice, recordCardPurchase } from "@/domain/cards";
+import { cardInvoices, payCardInvoice, recordCardPurchase, updateCardPurchase } from "@/domain/cards";
 import { CreditCardVisual } from "@/features/finance/CreditCardVisual";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
@@ -279,7 +279,19 @@ export function LaunchesPage() {
     .sort((a, b) => b.date.localeCompare(a.date));
   const save = async (input: EntryInput & { installments?: number }, toInstitutionId?: string, investmentId?: string) => {
     await commit((draft) => {
-      if (input.kind === "card_purchase" && input.creditCardId) {
+      if (editing && input.kind === "card_purchase" && input.creditCardId) {
+        const updated = updateEntry(draft, editing.id, input);
+        updateCardPurchase(draft, updated.id, {
+          cardId: input.creditCardId,
+          description: input.description,
+          amount: new Decimal(input.amount).abs().toString(),
+          currency: input.currency,
+          date: input.date,
+          categoryId: input.categoryId,
+          installments: input.installments ?? 1,
+          notes: input.notes,
+        });
+      } else if (input.kind === "card_purchase" && input.creditCardId) {
         recordCardPurchase(draft, {
           cardId: input.creditCardId,
           description: input.description,
@@ -548,7 +560,7 @@ function EntryForm({
         </Field>
       )}
       {kind === "card_purchase" && (
-        <Field label="Parcelas"><input required min="1" max="360" type="number" name="installments" defaultValue="1" /></Field>
+        <Field label="Parcelas"><input required min="1" max="360" type="number" name="installments" defaultValue={state.cardPurchases.find((purchase) => purchase.ledgerEntryId === entry?.id)?.installments ?? 1} /></Field>
       )}
       {kind === "credit_payment" && (
         <Field label="Fatura aberta">

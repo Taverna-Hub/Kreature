@@ -134,6 +134,8 @@ export function updateEntry(state: FinanceState, id: string, input: EntryInput):
 
 export function removeMovement(state: FinanceState, movementId: string) {
   if (!state.financialMovements.some((item) => item.id === movementId)) throw new Error("MovimentaÃ§Ã£o nÃ£o encontrada.");
+  const entryIds = new Set(state.entries.filter((item) => item.financialMovementId === movementId).map((item) => item.id));
+  state.cardPurchases = state.cardPurchases.filter((item) => !entryIds.has(item.ledgerEntryId));
   state.entries = state.entries.filter((item) => item.financialMovementId !== movementId);
   state.financialMovements = state.financialMovements.filter((item) => item.id !== movementId && item.relatedMovementId !== movementId);
 }
@@ -142,6 +144,12 @@ export function removeEntry(state: FinanceState, id: string) {
   const entry = state.entries.find((item) => item.id === id);
   if (!entry) throw new Error("LanÃ§amento nÃ£o encontrado.");
   if (entry.financialMovementId) return removeMovement(state, entry.financialMovementId);
+  const entryIds = new Set(
+    entry.transferGroupId
+      ? state.entries.filter((item) => item.transferGroupId === entry.transferGroupId).map((item) => item.id)
+      : [id],
+  );
+  state.cardPurchases = state.cardPurchases.filter((item) => !entryIds.has(item.ledgerEntryId));
   state.entries = entry.transferGroupId ? state.entries.filter((item) => item.transferGroupId !== entry.transferGroupId) : state.entries.filter((item) => item.id !== id);
 }
 

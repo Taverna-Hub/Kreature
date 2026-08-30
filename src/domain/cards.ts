@@ -114,6 +114,31 @@ export function recordCardPurchase(
   return purchase;
 }
 
+export function updateCardPurchase(
+  state: FinanceState,
+  ledgerEntryId: string,
+  input: Pick<CardPurchase, "cardId" | "description" | "amount" | "currency" | "date" | "categoryId" | "installments" | "notes">,
+) {
+  const purchase = state.cardPurchases.find((item) => item.ledgerEntryId === ledgerEntryId);
+  if (!purchase) return;
+  const card = state.creditCards.find((item) => item.id === input.cardId && !item.archivedAt);
+  if (!card) throw new Error("Selecione um cartão válido.");
+  if (!Number.isInteger(input.installments) || input.installments < 1)
+    throw new Error("Informe ao menos uma parcela.");
+  Object.assign(purchase, {
+    cardId: input.cardId,
+    description: input.description,
+    amount: input.amount,
+    currency: input.currency,
+    date: input.date,
+    categoryId: input.categoryId,
+    installments: input.installments,
+    firstInvoiceKey: invoiceKeyFor(card, input.date),
+    notes: input.notes,
+    updatedAt: now(),
+  });
+}
+
 export function payCardInvoice(
   state: FinanceState,
   input: { cardId: string; invoiceKey: string; institutionId: string; date: string; notes?: string },
