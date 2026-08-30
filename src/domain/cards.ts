@@ -12,6 +12,9 @@ export interface InvoiceInstallment {
   dueDate: string;
   description: string;
   categoryId?: string;
+  date: string;
+  transactionKind: NonNullable<CardPurchase["transactionKind"]>;
+  notes?: string;
 }
 
 export interface CardInvoice {
@@ -22,6 +25,9 @@ export interface CardInvoice {
   total: string;
   installments: InvoiceInstallment[];
   paidEntryId?: string;
+  status: "open" | "overdue" | "paid";
+  paidAt?: string;
+  paymentEntryId?: string;
 }
 
 function cycleStart(date: Date, closingDay: number) {
@@ -36,21 +42,27 @@ export function invoiceKeyFor(card: Pick<CreditCard, "id" | "closingDay">, date:
 
 export function invoiceSchedule(card: CreditCard, purchase: CardPurchase): InvoiceInstallment[] {
   const firstClose = parseISO(purchase.firstInvoiceKey.split(":")[1] + "-01");
-  const base = new Decimal(purchase.amount).div(purchase.installments);
-  return Array.from({ length: purchase.installments }, (_, index) => {
+  const importedInstallment = purchase.installmentNumber && purchase.totalInstallments;
+  const installmentCount = importedInstallment ? 1 : purchase.installments;
+  const base = importedInstallment ? new Decimal(purchase.amount) : new Decimal(purchase.amount).div(purchase.installments);
+  return Array.from({ length: installmentCount }, (_, index) => {
     const close = addMonths(firstClose, index);
     const due = new Date(close.getFullYear(), close.getMonth(), Math.min(card.dueDay, new Date(close.getFullYear(), close.getMonth() + 1, 0).getDate()));
-    const amount = index === purchase.installments - 1
+    const amount = importedInstallment || index === purchase.installments - 1
       ? new Decimal(purchase.amount).minus(base.mul(purchase.installments - 1))
       : base;
+    const sign = purchase.transactionKind === "refund" ? -1 : 1;
     return {
       purchaseId: purchase.id,
-      installment: index + 1,
-      totalInstallments: purchase.installments,
-      amount: amount.toDecimalPlaces(2).toString(),
+      installment: purchase.installmentNumber ?? index + 1,
+      totalInstallments: purchase.totalInstallments ?? purchase.installments,
+      amount: amount.mul(sign).toDecimalPlaces(2).toString(),
       dueDate: format(due, "yyyy-MM-dd"),
       description: purchase.description,
       categoryId: purchase.categoryId,
+      date: purchase.date,
+      transactionKind: purchase.transactionKind ?? "purchase",
+      notes: purchase.notes,
     };
   });
 }
@@ -59,7 +71,7 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
   const card = state.creditCards.find((item) => item.id === cardId);
   if (!card) throw new Error("Cartão não encontrado.");
   const groups = new Map<string, InvoiceInstallment[]>();
-  state.cardPurchases.filter((purchase) => purchase.cardId === cardId && (purchase.transactionKind ?? "purchase") === "purchase").forEach((purchase) => {
+  state.cardPurchases.filter((purchase) => purchase.cardId === cardId).forEach((purchase) => {
     invoiceSchedule(card, purchase).forEach((installment, index) => {
       const key = `${card.id}:${format(addMonths(parseISO(purchase.firstInvoiceKey.split(":")[1] + "-01"), index), "yyyy-MM")}`;
       groups.set(key, [...(groups.get(key) ?? []), installment]);
@@ -69,6 +81,7 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
     const [year, month] = key.split(":")[1].split("-").map(Number);
     const closeDate = new Date(year, month - 1, card.closingDay);
     const dueDate = installments[0]?.dueDate ?? format(closeDate, "yyyy-MM-dd");
+    const payment = state.entries.find((entry) => entry.invoiceKey === key && entry.kind === "credit_payment");
     return {
       key,
       cardId,
@@ -76,14 +89,18 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
       dueDate,
       total: installments.reduce((sum, item) => sum.plus(item.amount), new Decimal(0)).toString(),
       installments,
-      paidEntryId: state.entries.find((entry) => entry.invoiceKey === key && entry.kind === "credit_payment")?.id,
+      paidEntryId: payment?.id,
+      paymentEntryId: payment?.id,
+      paidAt: payment?.date,
+      status: payment ? "paid" as const : dueDate < new Date().toISOString().slice(0, 10) ? "overdue" as const : "open" as const,
     };
   }).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
 
 export function recordCardPurchase(
   state: FinanceState,
-  input: Omit<CardPurchase, "id" | "createdAt" | "updatedAt" | "ledgerEntryId" | "firstInvoiceKey">,
+  input: Omit<CardPurchase, "id" | "createdAt" | "updatedAt" | "ledgerEntryId" | "firstInvoiceKey"> &
+    Pick<Partial<LedgerEntry>, "source" | "plannedOccurrenceKey" | "systemGenerated">,
 ) {
   const card = state.creditCards.find((item) => item.id === input.cardId && !item.archivedAt);
   if (!card) throw new Error("Selecione um cartão válido.");
@@ -98,6 +115,9 @@ export function recordCardPurchase(
     categoryId: input.categoryId,
     creditCardId: card.id,
     ignoredFromAnalytics: false,
+    source: input.source ?? "manual",
+    plannedOccurrenceKey: input.plannedOccurrenceKey,
+    systemGenerated: input.systemGenerated,
     notes: input.notes,
   });
   const timestamp = now();
@@ -147,6 +167,7 @@ export function payCardInvoice(
   if (!invoice) throw new Error("Fatura não encontrada.");
   if (invoice.paidEntryId) return state.entries.find((entry) => entry.id === invoice.paidEntryId)!;
   const card = state.creditCards.find((item) => item.id === input.cardId)!;
+  if (new Decimal(invoice.total).lte(0)) throw new Error("Esta fatura não possui saldo para quitação.");
   return recordEntry(state, {
     date: input.date,
     description: `Pagamento de fatura ${card.name}`,
@@ -157,6 +178,8 @@ export function payCardInvoice(
     creditCardId: card.id,
     invoiceKey: invoice.key,
     ignoredFromAnalytics: true,
+    source: "reconciliation",
+    systemGenerated: true,
     notes: input.notes,
   });
 }

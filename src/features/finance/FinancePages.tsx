@@ -50,6 +50,7 @@ import type {
   LedgerEntry,
   PeriodFilter,
   PlannedEntry,
+  PaymentMethod,
   RecurrenceFrequency,
   ThemeMode,
 } from "@/domain/types";
@@ -57,6 +58,7 @@ import { analyzeFile, cleanTransactionDescription, importFingerprint, type Impor
 import { fetchAssetQuote, fetchExchangeRate } from "@/lib/market";
 import { dateLabel, decimalInput, money, monthLabel } from "@/lib/format";
 import { catalogInstitution, searchInstitutionCatalog } from "@/domain/institution-catalog";
+import { CARD_NETWORKS, CARD_TYPES, normalizeCardNetwork } from "@/domain/card-brands";
 import { cardInvoices, payCardInvoice, recordCardPurchase, updateCardPurchase } from "@/domain/cards";
 import { CreditCardVisual } from "@/features/finance/CreditCardVisual";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
@@ -271,6 +273,7 @@ export function LaunchesPage() {
   const [search, setSearch] = useState("");
   const movementKinds = new Map(movementsFor(state).map((movement) => [movement.id, movement.kind]));
   const entries = state.entries
+    .filter((entry) => !entry.systemGenerated)
     .filter((entry, index, all) => {
       const group = entry.financialMovementId ?? entry.transferGroupId;
       return !group || all.findIndex((candidate) => (candidate.financialMovementId ?? candidate.transferGroupId) === group) === index;
@@ -384,6 +387,7 @@ export function LaunchesPage() {
                       <td data-label="Descrição">
                         <strong title={entry.description}>{cleanTransactionDescription(entry.description)}</strong>
                         {entry.ignoredFromAnalytics && <small>Fora dos totais</small>}
+                        {entry.plannedOccurrenceKey && !state.plannedEntries.some((plan) => entry.plannedOccurrenceKey?.startsWith(`${plan.id}:`)) && <small>Planejamento removido</small>}
                       </td>
                       <td data-label="Tipo">
                         <span className={`badge ${movementKinds.get(entry.financialMovementId ?? entry.transferGroupId ?? entry.id) ?? entry.kind}`}>{entryKindLabel((movementKinds.get(entry.financialMovementId ?? entry.transferGroupId ?? entry.id) ?? entry.kind) as EntryKind)}</span>
@@ -596,18 +600,54 @@ function EntryForm({
   );
 }
 
+function CardInvoicesPanel({ card }: { card: CreditCard }) {
+  const { state, commit } = useFinance();
+  const { notify } = useFeedback();
+  const [paying, setPaying] = useState<string>();
+  const [paymentDate, setPaymentDate] = useState(today());
+  const [paymentAccount, setPaymentAccount] = useState(card.payerInstitutionId ?? state.institutions.find((item) => !item.archivedAt)?.id ?? "");
+  const invoices = cardInvoices(state, card.id);
+  const accounts = institutionOptions(state.institutions, true);
+  return <div className="card-invoices-panel">
+    <div className="card-invoices-heading"><strong>Faturas</strong><small>{invoices.length} fatura(s)</small></div>
+    {invoices.length === 0 ? <p className="form-hint">Nenhuma compra gerou fatura ainda.</p> : invoices.map((invoice) => {
+      const status = invoice.status === "paid" ? `Paga${invoice.paidAt ? ` em ${dateLabel(invoice.paidAt)}` : ""}` : invoice.status === "overdue" ? "Vencida" : "Em aberto";
+      return <details className="card-invoice" key={invoice.key}>
+        <summary><span><strong>{dateLabel(invoice.dueDate)}</strong><small>Vencimento · {status}</small></span><b>{money(invoice.total, card.currency)}</b></summary>
+        <div className="card-invoice-content">
+          <div className="card-invoice-meta"><span>Fechamento {dateLabel(invoice.closingDate)}</span><span className={`badge ${invoice.status}`}>{status}</span></div>
+          <div className="card-invoice-lines">{invoice.installments.map((line) => <div className="card-invoice-line" key={`${line.purchaseId}-${line.installment}`}>
+            <span><strong>{line.description}</strong><small>{dateLabel(line.date)} · {line.installment}/{line.totalInstallments} parcela · {line.transactionKind}{plannedOriginLabel(state, state.cardPurchases.find((item) => item.id === line.purchaseId) ? state.entries.find((entry) => entry.id === state.cardPurchases.find((item) => item.id === line.purchaseId)?.ledgerEntryId)?.plannedOccurrenceKey : undefined)}</small></span>
+            <b className={new Decimal(line.amount).isNegative() ? "positive" : "negative"}>{money(line.amount, card.currency)}</b>
+          </div>)}</div>
+          {invoice.status !== "paid" && <div className="card-invoice-actions">
+            {paying === invoice.key ? <form className="inline-form" onSubmit={(event) => { event.preventDefault(); void commit((draft) => payCardInvoice(draft, { cardId: card.id, invoiceKey: invoice.key, institutionId: paymentAccount, date: paymentDate })).then(() => { setPaying(undefined); notify("Fatura paga."); }).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível quitar a fatura.", "error")); }}>
+              <CustomSelect label="Conta para pagar" value={paymentAccount} onChange={setPaymentAccount} items={accounts} required />
+              <DatePicker value={paymentDate} onChange={setPaymentDate} label="Data do pagamento" />
+              <Button type="submit">Quitar fatura</Button><Button type="button" variant="secondary" onClick={() => setPaying(undefined)}>Cancelar</Button>
+            </form> : <Button onClick={() => { setPaymentAccount(card.payerInstitutionId ?? accounts[0]?.[0] ?? ""); setPaymentDate(today()); setPaying(invoice.key); }}>Quitar integralmente</Button>}
+          </div>}
+          {invoice.status === "paid" && <p className="form-hint">Fatura paga — {money(invoice.total, card.currency)}. A quitação não gera uma nova despesa.</p>}
+        </div>
+      </details>;
+    })}
+  </div>;
+}
+
 function CreditCardsView() {
   const { state, commit } = useFinance();
+  const { notify } = useFeedback();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<CreditCard>();
+  const [expandedCardId, setExpandedCardId] = useState<string>();
   const active = state.creditCards.filter((item) => !item.archivedAt);
   return <section className="panel">
     <div className="panel-heading"><div><span className="eyebrow">Crédito</span><h2>Cartões e faturas</h2></div><Button onClick={() => { setEditing(undefined); setOpen(true); }}><Plus />Novo cartão</Button></div>
     <div className="entity-grid institutions">{active.length ? active.map((card) => {
       const upcoming = cardInvoices(state, card.id).find((item) => !item.paidEntryId);
-      return <article className="entity-card credit-card-record" key={card.id}><CreditCardVisual card={card} /><header><div><h2>{card.name}</h2><p>Fecha dia {card.closingDay} · vence dia {card.dueDay}</p></div><div className="row-actions"><IconButton label={`Editar cartão ${card.name}`} onClick={() => { setEditing(card); setOpen(true); }}><Pencil /></IconButton></div></header><div className="balance"><span>Limite</span><strong>{money(card.limit, card.currency)}</strong><small>{upcoming ? `Fatura: ${money(upcoming.total, card.currency)} em ${dateLabel(upcoming.dueDate)}` : "Sem faturas abertas"}</small></div></article>;
+      return <article className="entity-card credit-card-record" key={card.id}><CreditCardVisual card={card} /><header><div><h2>{card.name}</h2><p>Fecha dia {card.closingDay} · vence dia {card.dueDay}</p></div><div className="row-actions"><IconButton label={`Editar cartão ${card.name}`} onClick={() => { setEditing(card); setOpen(true); }}><Pencil /></IconButton></div></header><div className="balance"><span>Limite</span><strong>{money(card.limit, card.currency)}</strong><small>{upcoming ? `Fatura: ${money(upcoming.total, card.currency)} em ${dateLabel(upcoming.dueDate)}` : "Sem faturas abertas"}</small></div><Button variant="secondary" onClick={() => setExpandedCardId((current) => current === card.id ? undefined : card.id)}>{expandedCardId === card.id ? "Ocultar faturas" : "Acessar faturas"}</Button>{expandedCardId === card.id && <CardInvoicesPanel card={card} />}</article>;
     }) : <Empty title="Nenhum cartão" description="Cadastre um cartão para registrar compras, parcelas e faturas." />}</div>
-    {open && <CreditCardDialog value={editing} institutions={state.institutions} onClose={() => setOpen(false)} onSave={async (card) => { await commit((draft) => { const index = draft.creditCards.findIndex((item) => item.id === card.id); if (index >= 0) draft.creditCards[index] = card; else draft.creditCards.push(card); }); setOpen(false); }} />}
+    {open && <CreditCardDialog value={editing} institutions={state.institutions} onClose={() => setOpen(false)} onSave={async (card) => { try { await commit((draft) => { const index = draft.creditCards.findIndex((item) => item.id === card.id); if (index >= 0) draft.creditCards[index] = card; else draft.creditCards.push(card); }); setOpen(false); notify("Cartão salvo."); } catch (error) { notify(error instanceof Error ? error.message : "Não foi possível salvar o cartão.", "error"); } }} />}
   </section>;
 }
 
@@ -838,8 +878,8 @@ function CategoryDialog({ value, onClose, onSave }: { value?: Category; onClose:
 }
 
 function CreditCardDialog({ value, institutions, onClose, onSave }: { value?: CreditCard; institutions: Institution[]; onClose: () => void; onSave: (value: CreditCard) => Promise<void>; }) {
-  return <Modal title={value ? "Editar cartão" : "Novo cartão"} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const timestamp = now(); void onSave({ id: value?.id ?? uid("card"), name: String(data.get("name")), issuer: (String(data.get("issuer") || "other") as CreditCard["issuer"]), issuerName: String(data.get("issuerName") || "") || undefined, lastFour: String(data.get("lastFour") || "").replace(/\D/g, "").slice(-4) || undefined, network: String(data.get("network") || "") || undefined, cardholderName: String(data.get("cardholderName") || "") || undefined, payerInstitutionId: String(data.get("payerInstitutionId") || "") || undefined, limit: decimalInput(data.get("limit")), closingDay: Number(data.get("closingDay")), dueDay: Number(data.get("dueDay")), currency: String(data.get("currency") || "BRL").toUpperCase(), notes: String(data.get("notes") || "") || undefined, createdAt: value?.createdAt ?? timestamp, updatedAt: timestamp }); }}>
-    <Field label="Nome"><input required name="name" defaultValue={value?.name} /></Field><Field label="Instituição emissora"><CustomSelect label="Instituição emissora" name="issuer" defaultValue={value?.issuer ?? "other"} items={[["other", "Outra"], ...searchInstitutionCatalog("").map((item) => [item.id, item.name] as const)]} /></Field><Field label="Nome do emissor"><input name="issuerName" defaultValue={value?.issuerName} /></Field><Field label="Últimos 4 dígitos"><input name="lastFour" inputMode="numeric" maxLength={4} defaultValue={value?.lastFour} /></Field><Field label="Bandeira"><input name="network" defaultValue={value?.network} /></Field><Field label="Titular"><input name="cardholderName" defaultValue={value?.cardholderName} /></Field><Field label="Conta pagadora"><CustomSelect label="Conta pagadora" name="payerInstitutionId" defaultValue={value?.payerInstitutionId ?? ""} items={[...emptyOption("Definir ao pagar"), ...institutionOptions(institutions)]} /></Field><Field label="Limite"><input required name="limit" inputMode="decimal" defaultValue={value?.limit ?? "0"} /></Field><Field label="Fechamento"><input required name="closingDay" min="1" max="31" type="number" defaultValue={value?.closingDay ?? 10} /></Field><Field label="Vencimento"><input required name="dueDay" min="1" max="31" type="number" defaultValue={value?.dueDay ?? 20} /></Field><Field label="Moeda"><input required name="currency" maxLength={5} defaultValue={value?.currency ?? "BRL"} /></Field><Field className="full" label="Observações"><textarea name="notes" rows={3} defaultValue={value?.notes} /></Field><div className="form-actions full"><Button type="submit">Salvar cartão</Button></div>
+  return <Modal title={value ? "Editar cartão" : "Novo cartão"} onClose={onClose}><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const timestamp = now(); void onSave({ id: value?.id ?? uid("card"), name: String(data.get("name")), issuer: (String(data.get("issuer") || "other") as CreditCard["issuer"]), issuerName: String(data.get("issuerName") || "") || undefined, lastFour: String(data.get("lastFour") || "").replace(/\D/g, "").slice(-4) || undefined, network: normalizeCardNetwork(String(data.get("network") || "")), cardType: String(data.get("cardType") || "credit") as CreditCard["cardType"], cardholderName: String(data.get("cardholderName") || "") || undefined, payerInstitutionId: String(data.get("payerInstitutionId") || "") || undefined, limit: decimalInput(data.get("limit")), closingDay: Number(data.get("closingDay")), dueDay: Number(data.get("dueDay")), currency: String(data.get("currency") || "BRL").toUpperCase(), notes: String(data.get("notes") || "") || undefined, createdAt: value?.createdAt ?? timestamp, updatedAt: timestamp }); }}>
+    <Field label="Nome"><input required name="name" defaultValue={value?.name} /></Field><Field label="Instituição emissora"><CustomSelect label="Instituição emissora" name="issuer" defaultValue={value?.issuer ?? "other"} items={[["other", "Outra"], ...searchInstitutionCatalog("").map((item) => [item.id, item.name] as const)]} /></Field><Field label="Nome do emissor"><input name="issuerName" defaultValue={value?.issuerName} /></Field><Field label="Últimos 4 dígitos"><input name="lastFour" inputMode="numeric" maxLength={4} defaultValue={value?.lastFour} /></Field><Field label="Bandeira"><CustomSelect label="Bandeira" name="network" required defaultValue={normalizeCardNetwork(value?.network) ?? "visa"} items={CARD_NETWORKS.map((item) => [item.value, item.label] as const)} /></Field><Field label="Tipo do cartão"><CustomSelect label="Tipo do cartão" name="cardType" required defaultValue={value?.cardType ?? "credit"} items={CARD_TYPES} /></Field><Field label="Titular"><input name="cardholderName" defaultValue={value?.cardholderName} /></Field><Field label="Conta pagadora"><CustomSelect label="Conta pagadora" name="payerInstitutionId" defaultValue={value?.payerInstitutionId ?? ""} items={[...emptyOption("Definir ao pagar"), ...institutionOptions(institutions)]} /></Field><Field label="Limite"><input required name="limit" inputMode="decimal" defaultValue={value?.limit ?? "0"} /></Field><Field label="Fechamento"><input required name="closingDay" min="1" max="31" type="number" defaultValue={value?.closingDay ?? 10} /></Field><Field label="Vencimento"><input required name="dueDay" min="1" max="31" type="number" defaultValue={value?.dueDay ?? 20} /></Field><Field label="Moeda"><input required name="currency" maxLength={5} defaultValue={value?.currency ?? "BRL"} /></Field><Field className="full" label="Observações"><textarea name="notes" rows={3} defaultValue={value?.notes} /></Field><div className="form-actions full"><Button type="submit">Salvar cartão</Button></div>
   </form></Modal>;
 }
 
@@ -2054,7 +2094,7 @@ export function PlanningPage() {
     new Decimal(0),
   );
   const projection = occurrences.map((item) => {
-    projected = item.kind === "income" ? projected.plus(item.amount) : projected.minus(item.amount);
+    if (item.paymentMethod !== "credit_card") projected = item.kind === "income" ? projected.plus(item.amount) : projected.minus(item.amount);
     return { ...item, projected: projected.toString() };
   });
   const plannedIncome = occurrences.filter((item) => item.kind === "income").reduce((sum, item) => sum.plus(item.amount), new Decimal(0));
@@ -2096,7 +2136,7 @@ export function PlanningPage() {
                 <span className="timeline-date">{dateLabel(item.date)}</span>
                 <div>
                   <strong>{item.description}</strong>
-                  <small>{item.settled ? "Realizado" : "Planejado"}</small>
+                   <small>{item.settled ? "Realizado" : "Planejado"} Â· {paymentMethodLabel(item.paymentMethod)}</small>
                 </div>
                 <span className={item.kind === "income" ? "positive" : "negative"}>
                   {item.kind === "income" ? "+" : "−"}
@@ -2168,6 +2208,8 @@ export function PlanningPage() {
                   kind: record.kind,
                   categoryId: record.categoryId,
                   institutionId: record.institutionId,
+                  paymentMethod: record.paymentMethod,
+                  creditCardId: record.creditCardId,
                 },
                 mode,
               );
@@ -2216,8 +2258,9 @@ function CompleteOccurrenceDialog({
   onClose: () => void;
   onConfirm: (effectiveDate: string, effectiveAmount: string) => Promise<void>;
 }) {
-  const [effectiveDate, setEffectiveDate] = useState(today());
+  const [effectiveDate, setEffectiveDate] = useState(occurrence.date);
   const [effectiveAmount, setEffectiveAmount] = useState(occurrence.amount);
+  const isCard = occurrence.paymentMethod === "credit_card";
   return (
     <Modal title="Concluir planejamento" onClose={onClose}>
       <form className="form-grid" onSubmit={(event) => {
@@ -2225,15 +2268,18 @@ function CompleteOccurrenceDialog({
         void onConfirm(effectiveDate, decimalInput(effectiveAmount));
       }}>
         <p className="form-hint full">Previsto: {dateLabel(occurrence.date)} · {money(occurrence.amount)}. O previsto serÃ¡ preservado para comparaÃ§Ã£o.</p>
+        {!isCard && <>
         <Field label="Data efetiva">
           <DatePicker value={effectiveDate} onChange={setEffectiveDate} label="Data efetiva" />
         </Field>
         <Field label="Valor efetivo">
           <input required inputMode="decimal" value={effectiveAmount} onChange={(event) => setEffectiveAmount(event.target.value)} />
         </Field>
+        </>}
+        {isCard && <p className="form-hint full">A compra serÃ¡ criada na fatura com a data e o valor originais. Nenhuma conta bancÃ¡ria serÃ¡ debitada agora.</p>}
         <div className="form-actions full">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="submit">Concluir em {dateLabel(effectiveDate)}</Button>
+          <Button type="submit">{isCard ? "Adicionar à fatura" : `Concluir em ${dateLabel(effectiveDate)}`}</Button>
         </div>
       </form>
     </Modal>
@@ -2264,7 +2310,12 @@ function PlanningDialog({
   const [description, setDescription] = useState(value?.description ?? "");
   const [frequency, setFrequency] = useState<RecurrenceFrequency>(value?.frequency ?? "once");
   const [categoryId, setCategoryId] = useState(value?.categoryId ?? "");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(value?.paymentMethod ?? "pix");
+  const [institutionId, setInstitutionId] = useState(value?.institutionId ?? "");
+  const [creditCardId, setCreditCardId] = useState(value?.creditCardId ?? "");
   const showSchedule = !value || editMode !== "one";
+  const settledEditDate = effectiveDate ?? value?.startDate;
+  const editingSettledOccurrence = Boolean(value?.exceptions.some((item) => item.date === settledEditDate && item.settledEntryId));
   const categories = state.categories.filter((item) => !item.archivedAt && item.flow === kind);
   const applyIncomePreset = (description: string, categoryName: string) => {
     setDescription(description);
@@ -2290,6 +2341,8 @@ function PlanningDialog({
               kind: String(data.get("kind")) as "income" | "expense",
               categoryId: String(data.get("categoryId") || "") || undefined,
               institutionId: String(data.get("institutionId") || "") || undefined,
+              paymentMethod: String(data.get("paymentMethod") || "pix") as PaymentMethod,
+              creditCardId: String(data.get("creditCardId") || "") || undefined,
               frequency: String(data.get("frequency") || value?.frequency || "once") as RecurrenceFrequency,
               endDate: String(data.get("endDate") || "") || undefined,
               occurrenceCount: Number(data.get("occurrenceCount")) || undefined,
@@ -2312,7 +2365,7 @@ function PlanningDialog({
                 onChange={(next) => setEditMode(next as typeof editMode)}
                 items={[
                   ["all", "Série inteira"],
-                  ["one", "Somente esta ocorrência"],
+                  ...(!editingSettledOccurrence ? [["one", "Somente esta ocorrência"] as const] : []),
                   ["future", "Esta e as futuras"],
                 ]}
               />
@@ -2337,11 +2390,6 @@ function PlanningDialog({
           />
         </Field>
         {kind === "income" && <div className="income-presets full" aria-label="Atalhos de receita"><span>Preencher como</span><div><button type="button" onClick={() => applyIncomePreset("Salário", "Salário")}>Salário mensal</button><button type="button" onClick={() => applyIncomePreset("Aluguel recebido", "Aluguel recebido")}>Aluguel mensal</button><button type="button" onClick={() => applyIncomePreset("Freela", "Freela e serviços")}>Freela</button></div></div>}
-        {(!value || editMode === "all") && (
-          <Field label="Primeira data">
-            <FormDatePicker name="startDate" defaultValue={value?.startDate ?? today()} label="Primeira data" required />
-          </Field>
-        )}
         <Field className="full" label="Descrição">
           <input required name="description" value={description} onChange={(event) => setDescription(event.target.value)} />
         </Field>
@@ -2350,6 +2398,17 @@ function PlanningDialog({
         </Field>
         {showSchedule && (
           <>
+            {(!value || editMode === "all") && <Field label="Primeira data">
+              <FormDatePicker name="startDate" defaultValue={value?.startDate ?? today()} label="Primeira data" required />
+            </Field>}
+            <Field label="Quantidade máxima">
+              <input
+                type="number"
+                min="1"
+                name="occurrenceCount"
+                defaultValue={value?.occurrenceCount}
+              />
+            </Field>
             <Field label="Frequência">
               <CustomSelect
                 label="Frequência"
@@ -2369,14 +2428,6 @@ function PlanningDialog({
             <Field label="Termina em">
               <FormDatePicker name="endDate" defaultValue={value?.endDate} label="Data de término" />
             </Field>
-            <Field label="Quantidade máxima">
-              <input
-                type="number"
-                min="1"
-                name="occurrenceCount"
-                defaultValue={value?.occurrenceCount}
-              />
-            </Field>
           </>
         )}
         <Field label="Categoria">
@@ -2392,10 +2443,35 @@ function PlanningDialog({
           <CustomSelect
             label="Instituição"
             name="institutionId"
-            defaultValue={value?.institutionId ?? ""}
+            value={institutionId}
+            onChange={setInstitutionId}
+            required
             items={[...emptyOption("Sem instituição"), ...institutionOptions(state.institutions)]}
           />
         </Field>
+        <Field label="Forma de pagamento">
+          <CustomSelect
+            label="Forma de pagamento"
+            name="paymentMethod"
+            value={paymentMethod}
+            onChange={(next) => setPaymentMethod(next as PaymentMethod)}
+            items={[
+              ["pix", "Pix"],
+              ["automatic_debit", "Débito automático"],
+              ["credit_card", "Cartão de crédito"],
+            ]}
+          />
+        </Field>
+        {paymentMethod === "credit_card" && <Field label="Cartão de crédito">
+          <CustomSelect
+            label="Cartão de crédito"
+            name="creditCardId"
+            value={creditCardId}
+            onChange={setCreditCardId}
+            required
+            items={state.creditCards.filter((item) => !item.archivedAt).map((item) => [item.id, item.name] as const)}
+          />
+        </Field>}
         <div className="form-actions full">
           {onRemove && (
             <Button type="button" variant="danger" onClick={() => void onRemove()}>
@@ -2511,6 +2587,12 @@ const entryKindLabel = (kind: EntryKind) =>
     pix: "Pix",
     adjustment: "Ajuste",
   })[kind];
+const paymentMethodLabel = (method: PaymentMethod) =>
+  ({ pix: "Pix", automatic_debit: "Débito automático", credit_card: "Cartão de crédito" })[method];
+const plannedOriginLabel = (state: FinanceState, key?: string) => {
+  if (!key) return "";
+  return ` · ${state.plannedEntries.some((plan) => key.startsWith(`${plan.id}:`)) ? "Planejamento" : "Planejamento removido"}`;
+};
 const institutionTypeLabel = (type: InstitutionType) =>
   ({ bank: "Banco", broker: "Corretora", wallet: "Carteira digital", other: "Outra" })[type];
 const investmentTypeOptions: Array<[InvestmentType, string]> = [

@@ -71,7 +71,7 @@ function historyEntry(state: FinanceState, movement: FinancialMovement): LedgerE
 /** One history item per business event, so a transfer never appears twice. */
 export function monthlyHistory(state: FinanceState) {
   const months = new Map<string, { income: Decimal; expenses: Decimal; entries: LedgerEntry[] }>();
-  for (const movement of movementsFor(state)) {
+  for (const movement of movementsFor(state).filter((item) => !item.systemGenerated)) {
     const key = movement.date.slice(0, 7);
     const current = months.get(key) ?? { income: new Decimal(0), expenses: new Decimal(0), entries: [] };
     if (isIncomeMovement(movement)) current.income = current.income.plus(movement.brlAmount);

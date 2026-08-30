@@ -31,6 +31,7 @@ const investment = (id: string, currentValue = "0", investedAmount = "0") => ({
   currency: "BRL", quoteStatus: "manual" as const, createdAt: "2026-01-01", updatedAt: "2026-01-01",
 });
 
+
 describe("movimentos patrimoniais", () => {
   it("trata aporte como troca patrimonial, sem despesa", () => {
     const state = emptyFinanceState();

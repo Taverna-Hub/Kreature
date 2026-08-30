@@ -1,6 +1,7 @@
 import { addDays, addMonths, addWeeks, addYears, formatISO, parseISO, subDays } from "date-fns";
-import type { FinanceState, PlannedEntry, RecurrenceException } from "./types";
+import type { FinanceState, PaymentMethod, PlannedEntry, RecurrenceException } from "./types";
 import { recordEntry, removeEntry } from "./ledger";
+import { recordCardPurchase } from "./cards";
 import { now, uid } from "./defaults";
 
 const day = (date: Date) => formatISO(date, { representation: "date" });
@@ -31,6 +32,8 @@ export interface PlannedOccurrence {
   kind: "income" | "expense";
   categoryId?: string;
   institutionId?: string;
+  paymentMethod: PaymentMethod;
+  creditCardId?: string;
   settled: boolean;
   effectiveDate?: string;
   effectiveAmount?: string;
@@ -53,16 +56,19 @@ export function occurrencesFor(
     const date = day(cursor);
     const exception = exceptions.get(date);
     if (date >= startDate && (!plan.endDate || date <= plan.endDate) && !exception?.deleted) {
+      const settled = Boolean(exception?.settledEntryId);
       result.push({
         key: `${plan.id}:${date}`,
         planId: plan.id,
         date,
-        description: exception?.description ?? plan.description,
-        amount: exception?.amount ?? plan.amount,
-        kind: exception?.kind ?? plan.kind,
-        categoryId: exception?.categoryId ?? plan.categoryId,
-        institutionId: exception?.institutionId ?? plan.institutionId,
-        settled: Boolean(exception?.settledEntryId),
+        description: settled ? exception?.plannedDescription ?? plan.description : exception?.description ?? plan.description,
+        amount: settled ? exception?.plannedAmount ?? plan.amount : exception?.amount ?? plan.amount,
+        kind: settled ? exception?.plannedKind ?? plan.kind : exception?.kind ?? plan.kind,
+        categoryId: settled ? exception?.plannedCategoryId ?? plan.categoryId : exception?.categoryId ?? plan.categoryId,
+        institutionId: settled ? exception?.plannedInstitutionId ?? plan.institutionId : exception?.institutionId ?? plan.institutionId,
+        paymentMethod: settled ? exception?.plannedPaymentMethod ?? plan.paymentMethod ?? "pix" : exception?.paymentMethod ?? plan.paymentMethod ?? "pix",
+        creditCardId: settled ? exception?.plannedCreditCardId ?? plan.creditCardId : exception?.creditCardId ?? plan.creditCardId,
+        settled,
         effectiveDate: exception?.effectiveDate,
         effectiveAmount: exception?.effectiveAmount,
         settledMovementId: exception?.settledMovementId,
@@ -95,26 +101,65 @@ export function settleOccurrence(
   if (!occurrence) throw new Error("Ocorrência inválida.");
   const existing = state.entries.find((item) => item.plannedOccurrenceKey === occurrence.key);
   if (existing) return existing;
-  const effectiveDate = realization.effectiveDate ?? day(new Date());
+  const paymentMethod = occurrence.paymentMethod;
+  const effectiveDate = paymentMethod === "credit_card"
+    ? occurrence.date
+    : realization.effectiveDate ?? occurrence.date;
   if (effectiveDate > day(new Date())) throw new Error("A data efetiva nÃ£o pode estar no futuro.");
-  const effectiveAmount = realization.effectiveAmount ?? occurrence.amount;
+  const effectiveAmount = paymentMethod === "credit_card"
+    ? occurrence.amount
+    : realization.effectiveAmount ?? occurrence.amount;
   if (Number(effectiveAmount) <= 0) throw new Error("O valor efetivo deve ser maior que zero.");
-  const institution = state.institutions.find((item) => item.id === occurrence.institutionId);
+  const institution = occurrence.institutionId
+    ? state.institutions.find((item) => item.id === occurrence.institutionId)
+    : undefined;
+  if (!occurrence.institutionId || !institution || institution.archivedAt) throw new Error("Selecione uma conta ativa para concluir a cobrança.");
+  if (paymentMethod === "credit_card") {
+    if (occurrence.kind !== "expense") throw new Error("Cartão de crédito só pode concluir despesas.");
+    if (!occurrence.creditCardId) throw new Error("Selecione um cartão de crédito ativo.");
+    const purchase = recordCardPurchase(state, {
+      cardId: occurrence.creditCardId,
+      description: occurrence.description,
+      amount: effectiveAmount,
+      currency: state.creditCards.find((item) => item.id === occurrence.creditCardId)?.currency ?? "BRL",
+      date: effectiveDate,
+      categoryId: occurrence.categoryId,
+      installments: 1,
+      source: "planned",
+      plannedOccurrenceKey: occurrence.key,
+    });
+    const entry = state.entries.find((item) => item.id === purchase.ledgerEntryId)!;
+    settleException(state, plan, occurrence, effectiveDate, effectiveAmount, entry);
+    return entry;
+  }
+  if (!occurrence.institutionId || !institution) throw new Error("Selecione uma conta ativa para concluir a cobrança.");
   const entry = recordEntry(state, {
     date: effectiveDate,
     description: occurrence.description,
     amount: effectiveAmount,
-    currency: institution?.currency ?? "BRL",
-    brlRate: institution?.exchangeRate ?? "1",
+    currency: institution.currency,
+    brlRate: institution.exchangeRate,
     kind: occurrence.kind,
     categoryId: occurrence.categoryId,
     institutionId: occurrence.institutionId,
     plannedOccurrenceKey: occurrence.key,
     source: "planned",
   });
+  settleException(state, plan, occurrence, effectiveDate, effectiveAmount, entry);
+  return entry;
+}
+
+function settleException(
+  state: FinanceState,
+  plan: PlannedEntry,
+  occurrence: PlannedOccurrence,
+  effectiveDate: string,
+  effectiveAmount: string,
+  entry: { id: string; financialMovementId?: string; date: string; description: string; amount: string; kind: string; categoryId?: string; institutionId?: string; source: string },
+) {
   const exception: RecurrenceException = plan.exceptions.find(
-    (item) => item.date === occurrenceDate,
-  ) ?? { date: occurrenceDate };
+    (item) => item.date === occurrence.date,
+  ) ?? { date: occurrence.date };
   exception.settledEntryId = entry.id;
   exception.settledMovementId = entry.financialMovementId;
   exception.plannedDate = occurrence.date;
@@ -123,12 +168,15 @@ export function settleOccurrence(
   exception.plannedKind = occurrence.kind;
   exception.plannedCategoryId = occurrence.categoryId;
   exception.plannedInstitutionId = occurrence.institutionId;
+  exception.plannedPaymentMethod = occurrence.paymentMethod;
+  exception.plannedCreditCardId = occurrence.creditCardId;
+  exception.paymentMethod = occurrence.paymentMethod;
+  exception.creditCardId = occurrence.creditCardId;
   exception.effectiveDate = effectiveDate;
   exception.effectiveAmount = effectiveAmount;
   exception.generatedFingerprint = plannedEntryFingerprint(entry);
-  plan.exceptions = [...plan.exceptions.filter((item) => item.date !== occurrenceDate), exception];
+  plan.exceptions = [...plan.exceptions.filter((item) => item.date !== occurrence.date), exception];
   plan.updatedAt = now();
-  return entry;
 }
 
 function plannedEntryFingerprint(entry: { id: string; date: string; description: string; amount: string; kind: string; categoryId?: string; institutionId?: string; source: string; importedDocumentId?: string }) {
@@ -184,7 +232,7 @@ export function editRecurrence(
   planId: string,
   effectiveDate: string,
   changes: Partial<
-    Pick<PlannedEntry, "description" | "amount" | "kind" | "categoryId" | "institutionId">
+    Pick<PlannedEntry, "description" | "amount" | "kind" | "categoryId" | "institutionId" | "paymentMethod" | "creditCardId">
   >,
   mode: "one" | "future" | "all",
 ) {
@@ -198,6 +246,7 @@ export function editRecurrence(
     const previous = plan.exceptions.find((item) => item.date === effectiveDate) ?? {
       date: effectiveDate,
     };
+    if (previous.settledEntryId || state.entries.some((entry) => entry.plannedOccurrenceKey === `${plan.id}:${effectiveDate}`)) throw new Error("Cobrança concluída não pode ser alterada.");
     const exception = {
       ...previous,
       description: changes.description ?? previous.description,
@@ -205,6 +254,8 @@ export function editRecurrence(
       kind: changes.kind ?? previous.kind,
       categoryId: changes.categoryId ?? previous.categoryId,
       institutionId: changes.institutionId ?? previous.institutionId,
+      paymentMethod: changes.paymentMethod ?? previous.paymentMethod,
+      creditCardId: changes.creditCardId ?? previous.creditCardId,
     };
     plan.exceptions = [...plan.exceptions.filter((item) => item.date !== effectiveDate), exception];
     return plan;

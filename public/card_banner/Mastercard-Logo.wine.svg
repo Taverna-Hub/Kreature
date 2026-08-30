@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="210 25 450 345" role="img" aria-labelledby="mastercard-title">
+  <title id="mastercard-title">MasterCard</title>
+  <path fill="#ff5f00" d="M224.833 42.298h190.416v311.005H224.833z"/>
+  <path fill="#eb001b" d="M244.446 197.828a197.448 197.448 0 0 1 75.54-155.475 197.777 197.777 0 1 0 0 311.004 197.448 197.448 0 0 1-75.54-155.53z"/>
+  <path fill="#f79e1b" d="M640 197.828a197.777 197.777 0 0 1-320.015 155.474 197.777 197.777 0 0 1 0-311.004A197.777 197.777 0 0 1 640 197.773z"/>
+</svg>

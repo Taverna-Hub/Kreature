@@ -30,6 +30,17 @@ type TableName =
   | "classification_rules"
   | "planned_entries";
 type CatalogRow = { id: string; slug: string; name: string; type: Institution["type"]; bank_code: string | null; logo_key: string };
+type DatabaseCause = { code?: string; message?: string };
+
+class RepositoryDatabaseError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, cause: DatabaseCause) {
+    super(message);
+    this.name = "RepositoryDatabaseError";
+    this.code = cause.code;
+  }
+}
 
 const clone = <T,>(value: T): T => structuredClone(value);
 const asString = (value: unknown, fallback = "") => typeof value === "string" ? value : fallback;
@@ -38,6 +49,11 @@ const asNumberString = (value: unknown, fallback = "0") => typeof value === "num
 const asDate = (value: unknown) => asString(value).slice(0, 10);
 const asTimestamp = (value: unknown) => asString(value, new Date(0).toISOString());
 const nullable = (value: string | undefined) => value ?? null;
+const isMissingCardTypeColumn = (cause: unknown) => {
+  const error = cause as Partial<RepositoryDatabaseError> & { message?: string };
+  return (error.code === "PGRST204" || error.code === "42703") && /card_type/i.test(error.message ?? "");
+};
+const changed = (before: unknown, after: unknown) => JSON.stringify(before) !== JSON.stringify(after);
 
 function databaseMessage(context: string, cause: { code?: string; message?: string } | null) {
   if (cause?.message) console.error(`Supabase ${context}:`, cause.message);
@@ -52,6 +68,12 @@ function databaseMessage(context: string, cause: { code?: string; message?: stri
   }
   if (cause?.code === "23503") {
     return "Uma conta, categoria ou instituição selecionada não está disponível para esta sessão.";
+  }
+  if ((cause?.code === "PGRST204" || cause?.code === "42703") && /card_type/i.test(cause.message ?? "")) {
+    return "A coluna card_type ainda nÃ£o existe no Supabase. Aplique a migration de tipo do cartÃ£o.";
+  }
+  if (cause?.code === "PGRST204" || cause?.code === "42703") {
+    return "A base do Supabase estÃ¡ desatualizada. Aplique as migrations locais antes de salvar novamente.";
   }
   if (cause?.code === "23505") {
     return "Este registro já existe. Revise os itens duplicados antes de confirmar.";
@@ -161,7 +183,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
     const catalog = catalogById.get(asString(row.issuer_institution_id));
     return {
       id: asString(row.id), name: asString(row.name), issuer: (catalog?.slug ?? "other") as CreditCard["issuer"], issuerName: asOptionalString(row.issuer_name),
-      lastFour: asOptionalString(row.last_four), network: asOptionalString(row.network), cardholderName: asOptionalString(row.cardholder_name),
+      lastFour: asOptionalString(row.last_four), network: asOptionalString(row.network) as CreditCard["network"], cardType: asString(row.card_type, "credit") as CreditCard["cardType"], cardholderName: asOptionalString(row.cardholder_name),
       payerInstitutionId: asOptionalString(row.payer_account_id), limit: asNumberString(row.credit_limit), closingDay: Number(row.closing_day),
       dueDay: Number(row.due_day), currency: asString(row.currency, "BRL"), notes: asOptionalString(row.notes), archivedAt: asOptionalString(row.archived_at),
       createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
@@ -173,7 +195,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
     brlAmount: asNumberString(row.brl_amount), kind: asString(row.kind) as LedgerEntry["kind"], categoryId: asOptionalString(row.category_id),
     institutionId: asOptionalString(row.account_id), transferGroupId: asOptionalString(row.transfer_group_id), financialMovementId: asOptionalString(row.financial_movement_id), investmentId: asOptionalString(row.investment_id),
     creditCardId: asOptionalString(row.credit_card_id), importedDocumentId: asOptionalString(row.imported_document_id), invoiceKey: asOptionalString(row.invoice_key), plannedOccurrenceKey: asOptionalString(row.planned_occurrence_key), pendingReconciliation: Boolean(row.pending_reconciliation),
-    source: asString(row.source, "manual") as LedgerEntry["source"], ignoredFromAnalytics: Boolean(row.ignored_from_analytics), notes: asOptionalString(row.notes),
+    source: asString(row.source, "manual") as LedgerEntry["source"], ignoredFromAnalytics: Boolean(row.ignored_from_analytics), systemGenerated: Boolean(row.system_generated), notes: asOptionalString(row.notes),
     fingerprint: asOptionalString(row.fingerprint), createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
   });
 
@@ -182,7 +204,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
     amount: asNumberString(row.amount), currency: asString(row.currency, "BRL"), brlAmount: asNumberString(row.brl_amount), categoryId: asOptionalString(row.category_id),
     investmentId: asOptionalString(row.investment_id), creditCardId: asOptionalString(row.credit_card_id), importedDocumentId: asOptionalString(row.imported_document_id),
     plannedOccurrenceKey: asOptionalString(row.planned_occurrence_key), relatedMovementId: asOptionalString(row.related_movement_id), source: asString(row.source, "manual") as FinancialMovement["source"],
-    notes: asOptionalString(row.notes), fingerprint: asOptionalString(row.fingerprint), legacyUnbalanced: Boolean(row.legacy_unbalanced), createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
+    notes: asOptionalString(row.notes), fingerprint: asOptionalString(row.fingerprint), legacyUnbalanced: Boolean(row.legacy_unbalanced), systemGenerated: Boolean(row.system_generated), createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
   });
 
   private purchase = (row: Row): CardPurchase => ({
@@ -203,7 +225,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
 
   private plan = (row: Row): PlannedEntry => ({
     id: asString(row.id), startDate: asDate(row.start_date), description: asString(row.description), amount: asNumberString(row.amount),
-    kind: asString(row.kind) as PlannedEntry["kind"], categoryId: asOptionalString(row.category_id), institutionId: asOptionalString(row.account_id),
+    kind: asString(row.kind) as PlannedEntry["kind"], categoryId: asOptionalString(row.category_id), institutionId: asOptionalString(row.account_id), paymentMethod: asString(row.payment_method, "pix") as PlannedEntry["paymentMethod"], creditCardId: asOptionalString(row.credit_card_id),
     frequency: asString(row.frequency) as PlannedEntry["frequency"], endDate: asOptionalString(row.end_date),
     occurrenceCount: typeof row.occurrence_count === "number" ? row.occurrence_count : undefined,
     exceptions: Array.isArray(row.exceptions) ? row.exceptions as PlannedEntry["exceptions"] : [], createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
@@ -212,47 +234,64 @@ export class SupabaseFinanceRepository implements FinanceRepository {
   private async persist(previous: FinanceState, next: FinanceState, userId: string) {
     const catalog = await this.catalogRows();
     const catalogIdBySlug = new Map(catalog.map((item) => [item.slug, item.id]));
-    const categories = await this.categoryRecords(previous.categories, next.categories, userId);
-    await this.upsert("profiles", [{ user_id: userId, display_name: next.profile.nickname, mascot: next.profile, theme: next.theme }]);
-    await this.sync("categories", previous.categories, next.categories, categories);
-    await this.sync("financial_accounts", previous.institutions, next.institutions, next.institutions.map((item) => ({
+    if (changed(previous.profile, next.profile) || previous.theme !== next.theme) {
+      await this.upsert("profiles", [{ user_id: userId, display_name: next.profile.nickname, mascot: next.profile, theme: next.theme }]);
+    }
+    if (changed(previous.categories, next.categories)) {
+      const categories = await this.categoryRecords(previous.categories, next.categories, userId);
+      await this.sync("categories", previous.categories, next.categories, categories);
+    }
+    if (changed(previous.institutions, next.institutions)) await this.sync("financial_accounts", previous.institutions, next.institutions, next.institutions.map((item) => ({
       id: item.id, user_id: userId, financial_institution_id: nullable(item.catalogId ? catalogIdBySlug.get(item.catalogId) : undefined), name: item.name, type: item.type,
       bank_code: nullable(item.bankCode), agency: nullable(item.agency), account_number: nullable(item.accountNumber), identifier: nullable(item.identifier), notes: nullable(item.notes),
       currency: item.currency, opening_balance: item.openingBalance, exchange_rate: item.exchangeRate, exchange_rate_as_of: nullable(item.exchangeRateAsOf), archived_at: nullable(item.archivedAt), created_at: item.createdAt,
     })));
-    await this.sync("investments", previous.investments, next.investments, next.investments.map((item) => ({
+    if (changed(previous.investments, next.investments)) await this.sync("investments", previous.investments, next.investments, next.investments.map((item) => ({
       id: item.id, user_id: userId, account_id: nullable(item.institutionId), type: item.type, application_type: nullable(item.applicationType), name: item.name, ticker: nullable(item.ticker),
       quantity: item.quantity, average_price: item.averagePrice, invested_amount: item.investedAmount, current_price: item.currentPrice, current_value: item.currentValue,
       dividends: item.dividends, currency: item.currency, contracted_yield: nullable(item.contractedYield), maturity_date: nullable(item.maturityDate), quote_status: item.quoteStatus,
       quote_message: nullable(item.quoteMessage), quote_as_of: nullable(item.quoteAsOf), archived_at: nullable(item.archivedAt), created_at: item.createdAt,
     })));
-    await this.sync("credit_cards", previous.creditCards, next.creditCards, next.creditCards.map((item) => ({
+    if (changed(previous.creditCards, next.creditCards)) {
+      const cardRecords = next.creditCards.map((item) => ({
       id: item.id, user_id: userId, name: item.name, issuer_institution_id: nullable(item.issuer && item.issuer !== "other" ? catalogIdBySlug.get(item.issuer) : undefined),
-      issuer_name: nullable(item.issuerName), last_four: nullable(item.lastFour), network: nullable(item.network), cardholder_name: nullable(item.cardholderName), payer_account_id: nullable(item.payerInstitutionId), credit_limit: item.limit, closing_day: item.closingDay, due_day: item.dueDay,
+      issuer_name: nullable(item.issuerName), last_four: nullable(item.lastFour), network: nullable(item.network), card_type: item.cardType ?? "credit", cardholder_name: nullable(item.cardholderName), payer_account_id: nullable(item.payerInstitutionId), credit_limit: item.limit, closing_day: item.closingDay, due_day: item.dueDay,
       currency: item.currency, notes: nullable(item.notes), archived_at: nullable(item.archivedAt), created_at: item.createdAt,
-    })));
-    await this.sync("imported_documents", previous.importedDocuments, next.importedDocuments, next.importedDocuments.map((item) => ({ id: item.id, user_id: userId, kind: item.kind, content_hash: item.contentHash, source: item.source, credit_card_id: nullable(item.creditCardId), period_start: nullable(item.periodStart), period_end: nullable(item.periodEnd), closing_date: nullable(item.closingDate), due_date: nullable(item.dueDate), total: nullable(item.total), created_at: item.createdAt })));
-    await this.sync("financial_movements", previous.financialMovements, next.financialMovements, next.financialMovements.map((item) => ({
+      }));
+      try {
+        await this.sync("credit_cards", previous.creditCards, next.creditCards, cardRecords);
+      } catch (cause) {
+        if (!isMissingCardTypeColumn(cause)) throw cause;
+        if (next.creditCards.some((item) => item.cardType === "debit")) {
+          throw new Error("Para salvar cartões de débito, aplique a migration 20260830110000_credit_card_type.sql no Supabase.");
+        }
+        // Compatibility with a remote database that has not received the new column yet.
+        const legacyCardRecords = cardRecords.map((record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== "card_type")));
+        await this.sync("credit_cards", previous.creditCards, next.creditCards, legacyCardRecords);
+      }
+    }
+    if (changed(previous.importedDocuments, next.importedDocuments)) await this.sync("imported_documents", previous.importedDocuments, next.importedDocuments, next.importedDocuments.map((item) => ({ id: item.id, user_id: userId, kind: item.kind, content_hash: item.contentHash, source: item.source, credit_card_id: nullable(item.creditCardId), period_start: nullable(item.periodStart), period_end: nullable(item.periodEnd), closing_date: nullable(item.closingDate), due_date: nullable(item.dueDate), total: nullable(item.total), created_at: item.createdAt })));
+    if (changed(previous.financialMovements, next.financialMovements)) await this.sync("financial_movements", previous.financialMovements, next.financialMovements, next.financialMovements.map((item) => ({
       id: item.id, user_id: userId, kind: item.kind, occurred_on: item.date.slice(0, 10), description: item.description, amount: item.amount, currency: item.currency, brl_amount: item.brlAmount,
       category_id: nullable(item.categoryId), investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId), imported_document_id: nullable(item.importedDocumentId),
-      planned_occurrence_key: nullable(item.plannedOccurrenceKey), related_movement_id: nullable(item.relatedMovementId), source: item.source, notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), legacy_unbalanced: Boolean(item.legacyUnbalanced), created_at: item.createdAt,
+      planned_occurrence_key: nullable(item.plannedOccurrenceKey), related_movement_id: nullable(item.relatedMovementId), source: item.source, notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), legacy_unbalanced: Boolean(item.legacyUnbalanced), system_generated: Boolean(item.systemGenerated), created_at: item.createdAt,
     })));
-    await this.sync("ledger_entries", previous.entries, next.entries, next.entries.map((item) => ({
+    if (changed(previous.entries, next.entries)) await this.sync("ledger_entries", previous.entries, next.entries, next.entries.map((item) => ({
       id: item.id, user_id: userId, account_id: nullable(item.institutionId), category_id: nullable(item.categoryId), investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId),
       transfer_group_id: nullable(item.transferGroupId), financial_movement_id: nullable(item.financialMovementId), imported_document_id: nullable(item.importedDocumentId), occurred_on: item.date.slice(0, 10), occurred_at: item.date.includes("T") ? item.date : null, description: item.description,
       amount: item.amount, currency: item.currency, brl_amount: item.brlAmount, kind: item.kind, invoice_key: nullable(item.invoiceKey), planned_occurrence_key: nullable(item.plannedOccurrenceKey),
-      source: item.source, ignored_from_analytics: item.ignoredFromAnalytics, notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), pending_reconciliation: Boolean(item.pendingReconciliation), created_at: item.createdAt,
+      source: item.source, ignored_from_analytics: item.ignoredFromAnalytics, system_generated: Boolean(item.systemGenerated), notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), pending_reconciliation: Boolean(item.pendingReconciliation), created_at: item.createdAt,
     })));
-    await this.sync("card_purchases", previous.cardPurchases, next.cardPurchases, next.cardPurchases.map((item) => ({
+    if (changed(previous.cardPurchases, next.cardPurchases)) await this.sync("card_purchases", previous.cardPurchases, next.cardPurchases, next.cardPurchases.map((item) => ({
       id: item.id, user_id: userId, card_id: item.cardId, ledger_entry_id: item.ledgerEntryId, description: item.description, amount: item.amount, currency: item.currency,
       occurred_on: item.date, category_id: nullable(item.categoryId), installments: item.installments, installment_number: item.installmentNumber ?? null, total_installments: item.totalInstallments ?? null, transaction_kind: item.transactionKind ?? "purchase", imported_document_id: nullable(item.importedDocumentId), first_invoice_key: item.firstInvoiceKey, notes: nullable(item.notes), created_at: item.createdAt,
     })));
-    await this.sync("classification_rules", previous.classificationRules, next.classificationRules, next.classificationRules.map((item) => ({
+    if (changed(previous.classificationRules, next.classificationRules)) await this.sync("classification_rules", previous.classificationRules, next.classificationRules, next.classificationRules.map((item) => ({
       id: item.id, user_id: userId, match: item.match, category_id: item.categoryId, flow: item.kind, created_at: item.createdAt,
     })));
-    await this.sync("planned_entries", previous.plannedEntries, next.plannedEntries, next.plannedEntries.map((item) => ({
+    if (changed(previous.plannedEntries, next.plannedEntries)) await this.sync("planned_entries", previous.plannedEntries, next.plannedEntries, next.plannedEntries.map((item) => ({
       id: item.id, user_id: userId, start_date: item.startDate, description: item.description, amount: item.amount, kind: item.kind, category_id: nullable(item.categoryId),
-      account_id: nullable(item.institutionId), frequency: item.frequency, end_date: nullable(item.endDate), occurrence_count: item.occurrenceCount ?? null, exceptions: item.exceptions, created_at: item.createdAt,
+      account_id: nullable(item.institutionId), payment_method: item.paymentMethod ?? "pix", credit_card_id: nullable(item.creditCardId), frequency: item.frequency, end_date: nullable(item.endDate), occurrence_count: item.occurrenceCount ?? null, exceptions: item.exceptions, created_at: item.createdAt,
     })));
   }
 
@@ -283,6 +322,6 @@ export class SupabaseFinanceRepository implements FinanceRepository {
 
   private async upsert(table: TableName, records: Row[]) {
     const { error } = await getSupabase().from(table).upsert(records);
-    if (error) throw new Error(databaseMessage("salvar seus dados", error));
+    if (error) throw new RepositoryDatabaseError(databaseMessage("salvar seus dados", error), error);
   }
 }

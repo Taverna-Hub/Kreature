@@ -16,7 +16,7 @@ export type EntryInput = Omit<
 > & { amount: string; brlRate?: string; source?: LedgerEntry["source"]; ignoredFromAnalytics?: boolean };
 
 type MovementInput = Pick<FinancialMovement, "kind" | "date" | "description" | "amount" | "currency"> &
-  Partial<Pick<FinancialMovement, "categoryId" | "investmentId" | "creditCardId" | "importedDocumentId" | "plannedOccurrenceKey" | "relatedMovementId" | "notes" | "fingerprint" | "legacyUnbalanced">> &
+  Partial<Pick<FinancialMovement, "categoryId" | "investmentId" | "creditCardId" | "importedDocumentId" | "plannedOccurrenceKey" | "relatedMovementId" | "notes" | "fingerprint" | "legacyUnbalanced" | "systemGenerated">> &
   { brlRate?: string; source?: LedgerEntry["source"] };
 
 const negativeKinds = new Set(["expense", "investment", "reserve", "credit_payment", "card_purchase", "card_fee", "card_interest"]);
@@ -74,7 +74,7 @@ export function createFinancialMovement(state: FinanceState, input: MovementInpu
     categoryId: input.categoryId, investmentId: input.investmentId, creditCardId: input.creditCardId,
     importedDocumentId: input.importedDocumentId, plannedOccurrenceKey: input.plannedOccurrenceKey,
     relatedMovementId: input.relatedMovementId, source: input.source ?? "manual", notes: input.notes,
-    fingerprint: input.fingerprint, legacyUnbalanced: input.legacyUnbalanced, createdAt: now(), updatedAt: now(),
+    fingerprint: input.fingerprint, legacyUnbalanced: input.legacyUnbalanced, systemGenerated: input.systemGenerated, createdAt: now(), updatedAt: now(),
   };
   state.financialMovements.push(movement);
   return movement;
@@ -103,7 +103,7 @@ export function recordEntry(state: FinanceState, input: EntryInput): LedgerEntry
     kind: movementKindFromEntry(entry, flow), date: entry.date, description: entry.description, amount: entry.amount,
     currency: entry.currency, brlRate: input.brlRate, categoryId: entry.categoryId, investmentId: entry.investmentId,
     creditCardId: entry.creditCardId, importedDocumentId: entry.importedDocumentId,
-    plannedOccurrenceKey: entry.plannedOccurrenceKey, notes: entry.notes, fingerprint: entry.fingerprint, source: entry.source,
+    plannedOccurrenceKey: entry.plannedOccurrenceKey, notes: entry.notes, fingerprint: entry.fingerprint, systemGenerated: entry.systemGenerated, source: entry.source,
   });
   entry.financialMovementId = movement.id;
   state.entries.push(entry);
@@ -126,6 +126,7 @@ export function updateEntry(state: FinanceState, id: string, input: EntryInput):
       brlAmount: new Decimal(updated.brlAmount).abs().toString(), categoryId: updated.categoryId,
       investmentId: updated.investmentId, creditCardId: updated.creditCardId, importedDocumentId: updated.importedDocumentId,
       notes: updated.notes, fingerprint: updated.fingerprint, source: updated.source, updatedAt: now(),
+      systemGenerated: updated.systemGenerated,
     });
   }
   if ((input.source ?? "manual") === "manual") learnClassificationRule(state, updated);

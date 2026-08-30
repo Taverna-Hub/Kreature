@@ -389,3 +389,62 @@ img, svg { max-width: 100%; }
   .login-welcome-copy > span { color: #fff9; font-size: .84rem; font-weight: 750; }
   .login-welcome-copy strong { font-size: clamp(2.2rem, 3.4vw, 3rem); letter-spacing: -.075em; line-height: .9; }
 }
+
+/* Cards keep their proportions even when issuer, holder or invoice text is long. */
+.credit-card-record { min-width: 0; max-width: 100%; overflow: visible; }
+.credit-card-record > header { position: relative; z-index: 1; margin-top: .35rem; padding: .1rem .05rem; background: var(--surface-raised); }
+.rule-row { min-width: 0; max-width: 100%; overflow: hidden; }
+.rule-row > * { min-width: 0; max-width: 100%; }
+.credit-card-record > * { min-width: 0; max-width: 100%; }
+.credit-card-visual { width: 100%; min-width: 0; max-width: 100%; min-height: 0; grid-template-rows: auto 1fr auto; box-shadow: 0 12px 22px color-mix(in srgb, var(--card-secondary) 22%, transparent); }
+.credit-card-middle { display: flex; min-width: 0; min-height: 0; flex-direction: column; justify-content: space-between; gap: .75rem; }
+.credit-card-issuer { min-width: 0; max-width: min(70%, 8.5rem); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.credit-card-number { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.credit-card-chip { width: 3rem; height: 2.25rem; flex: 0 0 auto; margin-top: .35rem; }
+.credit-card-middle .credit-card-number { align-self: auto; margin-top: auto; }
+.credit-card-visual footer > span { min-width: 0; max-width: 65%; }
+.card-invoices-panel { display: grid; gap: .75rem; min-width: 0; margin-top: .25rem; padding-top: .9rem; border-top: 1px solid var(--border); }
+.card-invoices-heading, .card-invoice summary, .card-invoice-meta, .card-invoice-line { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
+.card-invoices-heading small, .card-invoice summary small, .card-invoice-line small { display: block; color: var(--text-muted); font-size: .74rem; }
+.card-invoice { min-width: 0; border: 1px solid var(--border); border-radius: .85rem; overflow: hidden; background: var(--surface-raised); }
+.card-invoice summary { padding: .75rem .85rem; cursor: pointer; list-style: none; }
+.card-invoice summary::-webkit-details-marker { display: none; }
+.card-invoice-content { display: grid; gap: .75rem; padding: 0 .85rem .85rem; }
+.card-invoice-lines { display: grid; gap: .55rem; }
+.card-invoice-line { align-items: flex-start; padding-top: .55rem; border-top: 1px solid var(--border); }
+.card-invoice-line > span { min-width: 0; }
+.card-invoice-line strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-invoice-actions, .inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.inline-form .custom-select { min-width: 12rem; flex: 1 1 12rem; }
+.badge.open { color: var(--brand-dark); }
+.badge.overdue { color: #b42318; }
+.badge.paid { color: var(--teal-deep); }
+
+@media (max-width: 760px) {
+  .credit-card-visual { padding: .9rem; gap: .65rem; }
+  .credit-card-chip { width: 2.85rem; height: 2.15rem; }
+  .credit-card-number { font-size: .78rem; letter-spacing: .045em; }
+  .card-invoice-line b { flex: 0 0 auto; }
+}
+
+.credit-card-visual footer > .credit-card-branding { display: grid; min-width: 3.7rem; max-width: 5rem; justify-items: end; align-content: end; gap: .28rem; }
+.credit-card-network-logo { display: block; width: auto; max-width: 4.6rem; height: 1.15rem; object-fit: contain; }
+.credit-card-network-logo.network-visa { filter: grayscale(1) brightness(0) invert(1); }
+.credit-card-network-logo.network-mastercard { transform: translateY(-.12rem) scale(1.6); transform-origin: right center; }
+.credit-card-network-logo.network-elo { transform: translateY(-.08rem); }
+.credit-card-type { border: 1px solid color-mix(in srgb, var(--card-foreground) 50%, transparent); border-radius: 999px; padding: .24rem .48rem; font-size: .57rem; font-weight: 900; letter-spacing: .08em; white-space: nowrap; }
+.credit-card-record > header { z-index: 1; margin-top: .65rem; }
+.credit-card-visual { z-index: 2; box-shadow: 0 18px 32px color-mix(in srgb, var(--card-secondary) 32%, transparent); }
+.credit-card-middle { position: relative; }
+.credit-card-chip { position: absolute; top: 50%; left: .4rem; display: block; width: 3.75rem; height: 2.8125rem; margin: 0; border: 0; border-radius: 0; background: transparent; transform: translateY(-50%); }
+.credit-card-chip img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.credit-card-issuer { max-width: 10.625rem; }
+.credit-card-issuer img { max-width: 100%; max-height: 2.1875rem; }
+.entity-grid.institutions { overflow: visible; }
+
+@media (max-width: 760px) {
+  .credit-card-issuer { max-width: 8.5rem; }
+  .credit-card-issuer img { max-height: 1.75rem; }
+  .credit-card-chip { width: 3rem; height: 2.25rem; }
+  .credit-card-network-logo.network-mastercard { transform: translateY(-.1rem) scale(1.6); }
+}
