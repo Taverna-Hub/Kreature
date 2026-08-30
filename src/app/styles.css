@@ -512,3 +512,29 @@ img, svg { max-width: 100%; }
 .credit-card-picpay .credit-card-art span:nth-child(2) { right: 42%; bottom: -6rem; width: 16rem; height: 10rem; border-radius: 50%; transform: rotate(22deg); }
 .credit-card-btg-pactual .credit-card-art span:nth-child(1) { top: -7rem; right: 30%; width: 16rem; height: 16rem; border-radius: 50%; }
 .credit-card-btg-pactual .credit-card-art span:nth-child(2) { right: -1rem; bottom: 0; width: 7rem; height: 7rem; border-radius: 1rem; transform: rotate(45deg); }
+
+/* No mobile, chip e número ocupam faixas distintas para nunca se sobreporem. */
+.credit-card-visual { grid-template-rows: auto minmax(0, 1fr) auto auto; }
+.credit-card-middle { display: grid; min-height: 0; align-items: center; justify-items: start; }
+.credit-card-chip { position: static; width: 3.75rem; height: 2.8125rem; margin: 0 0 0 .4rem; transform: none; }
+.credit-card-number { align-self: center; justify-self: start; width: 100%; }
+@media (max-width: 760px) {
+  .credit-card-visual { grid-template-rows: auto minmax(3.1rem, 1fr) auto auto; gap: .48rem; }
+  .credit-card-middle { min-height: 3.1rem; }
+  .credit-card-number { font-size: .76rem; letter-spacing: .04em; }
+}
+
+.credit-card-visual footer .credit-card-holder-compact { display: none; }
+
+@media (max-width: 760px) {
+  .credit-card-visual footer .credit-card-holder-full { display: none; }
+  .credit-card-visual footer .credit-card-holder-compact { display: block; max-width: 100%; }
+  .credit-card-chip { width: 1.8rem; height: 1.35rem; margin-left: .15rem; }
+  .credit-card-issuer { max-width: 5.5rem; min-height: 1.25rem; }
+  .credit-card-issuer img { max-width: 100%; max-height: 1.25rem; }
+  .credit-card-issuer-mercado-pago img { width: 3.1rem; height: 1.6rem; }
+  .credit-card-network-logo { max-width: 3rem; height: .76rem; }
+  .credit-card-network-logo.network-mastercard { transform: translateY(-.04rem) scale(1.15); }
+  .credit-card-network-logo.network-elo { transform: translateY(-.03rem); }
+  .credit-card-branding { min-width: 3.1rem; max-width: 4rem; gap: .2rem; }
+}
