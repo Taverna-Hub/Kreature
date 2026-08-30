@@ -77,7 +77,7 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
       groups.set(key, [...(groups.get(key) ?? []), installment]);
     });
   });
-  return [...groups.entries()].map(([key, installments]) => {
+  const invoices = [...groups.entries()].map(([key, installments]) => {
     const [year, month] = key.split(":")[1].split("-").map(Number);
     const closeDate = new Date(year, month - 1, card.closingDay);
     const dueDate = installments[0]?.dueDate ?? format(closeDate, "yyyy-MM-dd");
@@ -95,6 +95,32 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
       status: payment ? "paid" as const : dueDate < new Date().toISOString().slice(0, 10) ? "overdue" as const : "open" as const,
     };
   }).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  // A paid invoice always rolls the card forward. The next cycle is derived
+  // from the last paid invoice, so the UI immediately shows the next invoice
+  // even before the first purchase in that cycle exists.
+  const latest = invoices[invoices.length - 1];
+  if (latest?.status === "paid") {
+    const [year, month] = latest.key.split(":")[1].split("-").map(Number);
+    const nextClose = addMonths(new Date(year, month - 1, 1), 1);
+    const nextKey = `${card.id}:${format(nextClose, "yyyy-MM")}`;
+    if (!invoices.some((item) => item.key === nextKey)) {
+      const due = new Date(nextClose.getFullYear(), nextClose.getMonth() + 1, Math.min(card.dueDay, new Date(nextClose.getFullYear(), nextClose.getMonth() + 2, 0).getDate()));
+      invoices.push({
+        key: nextKey,
+        cardId,
+        closingDate: format(new Date(nextClose.getFullYear(), nextClose.getMonth(), card.closingDay), "yyyy-MM-dd"),
+        dueDate: format(due, "yyyy-MM-dd"),
+        total: "0",
+        installments: [],
+        paidEntryId: undefined,
+        paymentEntryId: undefined,
+        paidAt: undefined,
+        status: "open",
+      });
+    }
+  }
+  return invoices;
 }
 
 export function recordCardPurchase(
@@ -104,6 +130,7 @@ export function recordCardPurchase(
 ) {
   const card = state.creditCards.find((item) => item.id === input.cardId && !item.archivedAt);
   if (!card) throw new Error("Selecione um cartão válido.");
+  if (card.cardType === "debit") throw new Error("Faturas e compras parceladas exigem um cartão de crédito.");
   if (!Number.isInteger(input.installments) || input.installments < 1)
     throw new Error("Informe ao menos uma parcela.");
   const ledgerEntry = recordEntry(state, {

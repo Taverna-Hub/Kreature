@@ -11,6 +11,7 @@ import {
 import { useFinance } from "@/data/finance-context";
 import { useAuth } from "@/auth/auth-context";
 import { Mascot } from "@/features/profile/Mascot";
+import { applyTheme } from "@/app/theme";
 
 const navigationItems = [
   ["/resumo", "Resumo", CircleDollarSign],
@@ -43,19 +44,10 @@ export function AppShell() {
   useEffect(() => {
     const selected = state.theme ?? "light";
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const applyTheme = () => {
-      const theme = selected === "system" ? (media.matches ? "dark" : "light") : selected;
-      document.documentElement.dataset.theme = theme;
-      document.documentElement.style.colorScheme = theme;
-      document.querySelector('meta[name="theme-color"]')?.setAttribute(
-        "content",
-        theme === "dark" ? "#18181b" : "#fffaf5",
-      );
-    };
-
-    applyTheme();
-    if (selected === "system") media.addEventListener("change", applyTheme);
-    return () => media.removeEventListener("change", applyTheme);
+    const update = () => applyTheme(selected);
+    update();
+    if (selected === "system") media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
   }, [state.theme]);
 
   const isCurrentRoute = (to: string) =>

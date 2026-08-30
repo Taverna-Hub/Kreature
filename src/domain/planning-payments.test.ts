@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardInvoices, payCardInvoice } from "./cards";
+import { cardInvoices, payCardInvoice, recordCardPurchase } from "./cards";
 import { emptyFinanceState } from "./defaults";
 import { institutionBalance } from "./ledger";
 import { buildSummary } from "./queries";
@@ -32,7 +32,7 @@ describe("planned payment methods", () => {
     const state = emptyFinanceState();
     state.institutions.push(account("bank"));
     state.creditCards.push(card("card", "bank"));
-    state.plannedEntries.push({ id: "card-plan", startDate: "2026-08-30", description: "Compra", amount: "120", kind: "expense", institutionId: "bank", paymentMethod: "credit_card", creditCardId: "card", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    state.plannedEntries.push({ id: "card-plan", startDate: "2026-08-30", description: "Compra", amount: "120", kind: "expense", paymentMethod: "credit_card", creditCardId: "card", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
     const entry = settleOccurrence(state, "card-plan", "2026-08-30");
     expect(entry.date).toBe("2026-08-30");
     expect(entry.institutionId).toBeUndefined();
@@ -54,6 +54,19 @@ describe("planned payment methods", () => {
     expect(buildSummary(state, { mode: "all" }).expenses).toBe("120");
     expect(cardInvoices(state, "card")[0].status).toBe("paid");
     expect(state.entries.filter((entry) => entry.systemGenerated)).toHaveLength(1);
+  });
+
+  it("opens the next invoice after the current invoice is paid", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(account("bank"));
+    state.creditCards.push(card("card", "bank"));
+    const purchase = recordCardPurchase(state, { cardId: "card", description: "Compra", amount: "120", currency: "BRL", date: "2026-08-30", installments: 1 });
+    const invoice = cardInvoices(state, "card")[0];
+    payCardInvoice(state, { cardId: "card", invoiceKey: invoice.key, institutionId: "bank", date: "2026-08-30" });
+    const invoices = cardInvoices(state, "card");
+    expect(invoices[0].paidEntryId).toBeDefined();
+    expect(invoices[1]).toMatchObject({ status: "open", total: "0", installments: [] });
+    expect(purchase.id).toBeDefined();
   });
 
   it("keeps charges, refunds, fees and interest with the correct invoice signs", () => {

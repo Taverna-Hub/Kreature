@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import type { FinanceState, FinancialMovement, LedgerEntry, PeriodFilter, Summary } from "./types";
 import { entriesForMovement, institutionBalance, movementKindFromEntry, movementsFor } from "./ledger";
+import { endOfMonth, format, subMonths } from "date-fns";
 
 export function matchesPeriod(date: string, filter: PeriodFilter): boolean {
   if (filter.mode === "all") return true;
@@ -55,6 +56,60 @@ export function buildSummary(state: FinanceState, filter: PeriodFilter): Summary
     return { categoryId: categoryId === "uncategorized" ? undefined : categoryId, name: category?.name ?? "Sem categoria", color: category?.color ?? "#94a3b8", amount: amount.toString() };
   }).sort((a, b) => new Decimal(b.amount).cmp(a.amount));
   return { expenses: expenses.toString(), income: income.toString(), available: available.toString(), invested: invested.toString(), categoryTotals };
+}
+
+export interface SummaryComparisonValue {
+  current: string;
+  previous: string;
+  delta: string;
+  percentage?: string;
+}
+
+export type SummaryComparison = Record<"expenses" | "income" | "available" | "invested", SummaryComparisonValue>;
+
+function valueComparison(current: string, previous: string): SummaryComparisonValue {
+  const currentValue = new Decimal(current);
+  const previousValue = new Decimal(previous);
+  const delta = currentValue.minus(previousValue);
+  return {
+    current,
+    previous,
+    delta: delta.toString(),
+    percentage: previousValue.isZero() ? undefined : delta.div(previousValue.abs()).mul(100).toDecimalPlaces(1).toString(),
+  };
+}
+
+function availableAt(state: FinanceState, endDate: string) {
+  return state.institutions.filter((item) => !item.archivedAt).reduce((sum, item) => {
+    const balance = state.entries
+      .filter((entry) => entry.institutionId === item.id && entry.date.slice(0, 10) <= endDate)
+      .reduce((value, entry) => value.plus(entry.amount), new Decimal(item.openingBalance));
+    return sum.plus(balance.mul(item.exchangeRate));
+  }, new Decimal(0)).toString();
+}
+
+function previousMonthFilter(filter: PeriodFilter): { previous: PeriodFilter; previousEnd: string } | undefined {
+  if (filter.mode !== "month" || !filter.year || !filter.month) return undefined;
+  const current = new Date(filter.year, filter.month - 1, 1, 12);
+  const previous = subMonths(current, 1);
+  return {
+    previous: { mode: "month", year: previous.getFullYear(), month: previous.getMonth() + 1 },
+    previousEnd: format(endOfMonth(previous), "yyyy-MM-dd"),
+  };
+}
+
+/** Compares the selected month with the immediately preceding month. */
+export function buildSummaryComparison(state: FinanceState, filter: PeriodFilter): SummaryComparison | undefined {
+  const bounds = previousMonthFilter(filter);
+  if (!bounds) return undefined;
+  const current = buildSummary(state, filter);
+  const previous = buildSummary(state, bounds.previous);
+  return {
+    expenses: valueComparison(current.expenses, previous.expenses),
+    income: valueComparison(current.income, previous.income),
+    available: valueComparison(current.available, availableAt(state, bounds.previousEnd)),
+    invested: valueComparison(current.invested, previous.invested),
+  };
 }
 
 function historyEntry(state: FinanceState, movement: FinancialMovement): LedgerEntry {

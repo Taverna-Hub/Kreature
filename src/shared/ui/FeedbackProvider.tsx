@@ -14,7 +14,7 @@ export function FeedbackProvider({ children }: PropsWithChildren) {
   }, []);
   const value = useMemo(() => ({ notify }), [notify]);
 
-  return <FeedbackContext.Provider value={value}>{children}<div className="toast-region" aria-live="polite" aria-atomic="true">{messages.map((item) => <div className={`toast ${item.tone}`} key={item.id}>{item.message}</div>)}</div></FeedbackContext.Provider>;
+  return <FeedbackContext.Provider value={value}>{children}<div className="toast-region" aria-live="polite" aria-atomic="true">{messages.map((item) => <div className={`toast ${item.tone}`} role={item.tone === "error" ? "alert" : "status"} key={item.id}>{item.message}</div>)}</div></FeedbackContext.Provider>;
 }
 
 export function useFeedback() {

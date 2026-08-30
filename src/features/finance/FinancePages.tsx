@@ -32,7 +32,7 @@ import {
   updateEntry,
   type EntryInput,
 } from "@/domain/ledger";
-import { buildSummary, monthlyHistory } from "@/domain/queries";
+import { buildSummary, buildSummaryComparison, monthlyHistory } from "@/domain/queries";
 import { importedRdbPositionKey, investmentDisplayGroups, investmentMovementAmount, rdbPositionKey } from "@/domain/investment-groups";
 import { learnClassificationRule, normalizeClassificationText } from "@/domain/classification";
 import { suggestInternalTransfer } from "@/domain/internal-transfers";
@@ -74,6 +74,7 @@ import { CATEGORY_ICON_NAMES, categoryIcon } from "@/features/finance/category-i
 import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
 import { useAuth } from "@/auth/auth-context";
+import { applyTheme } from "@/app/theme";
 
 const DashboardCharts = lazy(() => import("@/features/summary/DashboardCharts").then((module) => ({ default: module.DashboardCharts })));
 const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCustomizer").then((module) => ({ default: module.CharacterCustomizer })));
@@ -176,12 +177,13 @@ export function SummaryPage() {
     year: date.getFullYear(),
   });
   const summary = useMemo(() => buildSummary(state, filter), [state, filter]);
+  const comparison = useMemo(() => buildSummaryComparison(state, filter), [state, filter]);
   const history = useMemo(() => monthlyHistory(state).slice().reverse().slice(-8), [state]);
   const cards = [
-    ["Gastos do período", summary.expenses, "expense"],
-    ["Disponível", summary.available, "available"],
-    ["Total investido", summary.invested, "invested"],
-    ["Entradas", summary.income, "income"],
+    { key: "available", label: "Disponível", value: summary.available, tone: "available" },
+    { key: "expenses", label: "Gastos do período", value: summary.expenses, tone: "expense" },
+    { key: "invested", label: "Total investido", value: summary.invested, tone: "invested" },
+    { key: "income", label: "Entradas", value: summary.income, tone: "income" },
   ] as const;
   return (
     <Page
@@ -249,13 +251,19 @@ export function SummaryPage() {
           </>
         )}
       </section>
-      <section className="metric-grid">
-        {cards.map(([label, value, tone]) => (
-          <article className={`metric ${tone}`} key={label}>
+      <section className="metric-grid" aria-label="Indicadores financeiros">
+        {cards.map(({ key, label, value, tone }) => {
+          const item = comparison?.[key];
+          const delta = item ? new Decimal(item.delta) : undefined;
+          const direction = delta?.isZero() ? "stable" : delta?.isPositive() ? "up" : "down";
+          return <article className={`metric ${tone}`} key={label}>
             <span>{label}</span>
             <strong>{money(value)}</strong>
-          </article>
-        ))}
+            {item ? <small className={`metric-comparison ${direction}`} aria-label={`Variação de ${money(item.delta)} em relação ao mês anterior`}>
+              {delta?.isZero() ? "Sem variação" : `${delta?.isPositive() ? "↑" : "↓"} ${money(delta?.abs().toString() ?? "0")}${item.percentage ? ` (${Number(item.percentage).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)` : ""} vs. mês anterior`}
+            </small> : <small className="metric-comparison muted">Compare no filtro mensal</small>}
+          </article>;
+        })}
       </section>
       <Suspense fallback={<div className="panel page-route-loading">Carregando gráficos…</div>}>
         <DashboardCharts categoryTotals={summary.categoryTotals} history={history} />
@@ -344,6 +352,7 @@ export function LaunchesPage() {
     >
       <Tabs
         className="launch-tabs"
+        label="Seções de lançamentos"
         value={tab}
         onChange={setTab}
         items={[
@@ -559,7 +568,7 @@ function EntryForm({
             required
             value={creditCardId}
             onChange={setCreditCardId}
-            items={[...emptyOption("Selecione"), ...state.creditCards.filter((item) => !item.archivedAt).map((item) => [item.id, item.name] as const)]}
+            items={[...emptyOption("Selecione"), ...state.creditCards.filter((item) => !item.archivedAt && item.cardType !== "debit").map((item) => [item.id, item.name] as const)]}
           />
         </Field>
       )}
@@ -616,10 +625,10 @@ function CardInvoicesPanel({ card }: { card: CreditCard }) {
         <summary><span><strong>{dateLabel(invoice.dueDate)}</strong><small>Vencimento · {status}</small></span><b>{money(invoice.total, card.currency)}</b></summary>
         <div className="card-invoice-content">
           <div className="card-invoice-meta"><span>Fechamento {dateLabel(invoice.closingDate)}</span><span className={`badge ${invoice.status}`}>{status}</span></div>
-          <div className="card-invoice-lines">{invoice.installments.map((line) => <div className="card-invoice-line" key={`${line.purchaseId}-${line.installment}`}>
+          {invoice.installments.length ? <div className="card-invoice-lines">{invoice.installments.map((line) => <div className="card-invoice-line" key={`${line.purchaseId}-${line.installment}`}>
             <span><strong>{line.description}</strong><small>{dateLabel(line.date)} · {line.installment}/{line.totalInstallments} parcela · {line.transactionKind}{plannedOriginLabel(state, state.cardPurchases.find((item) => item.id === line.purchaseId) ? state.entries.find((entry) => entry.id === state.cardPurchases.find((item) => item.id === line.purchaseId)?.ledgerEntryId)?.plannedOccurrenceKey : undefined)}</small></span>
             <b className={new Decimal(line.amount).isNegative() ? "positive" : "negative"}>{money(line.amount, card.currency)}</b>
-          </div>)}</div>
+          </div>)}</div> : <p className="form-hint">Nenhum lançamento nesta fatura ainda.</p>}
           {invoice.status !== "paid" && <div className="card-invoice-actions">
             {paying === invoice.key ? <form className="inline-form" onSubmit={(event) => { event.preventDefault(); void commit((draft) => payCardInvoice(draft, { cardId: card.id, invoiceKey: invoice.key, institutionId: paymentAccount, date: paymentDate })).then(() => { setPaying(undefined); notify("Fatura paga."); }).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível quitar a fatura.", "error")); }}>
               <CustomSelect label="Conta para pagar" value={paymentAccount} onChange={setPaymentAccount} items={accounts} required />
@@ -2445,7 +2454,7 @@ function PlanningDialog({
             name="institutionId"
             value={institutionId}
             onChange={setInstitutionId}
-            required
+            required={paymentMethod !== "credit_card"}
             items={[...emptyOption("Sem instituição"), ...institutionOptions(state.institutions)]}
           />
         </Field>
@@ -2469,7 +2478,7 @@ function PlanningDialog({
             value={creditCardId}
             onChange={setCreditCardId}
             required
-            items={state.creditCards.filter((item) => !item.archivedAt).map((item) => [item.id, item.name] as const)}
+            items={state.creditCards.filter((item) => !item.archivedAt && item.cardType !== "debit").map((item) => [item.id, item.name] as const)}
           />
         </Field>}
         <div className="form-actions full">
@@ -2487,6 +2496,7 @@ function PlanningDialog({
 
 export function ProfilePage() {
   const { state, commit } = useFinance();
+  const { notify } = useFeedback();
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
@@ -2504,7 +2514,16 @@ export function ProfilePage() {
           <h2>Um perfil com a sua cara</h2>
           <p>Personalize formato, cor, expressão, acessórios, moldura, fundo e identidade. As alterações acompanham sua conta.</p>
           <Button onClick={() => setEditing(true)}><Sparkles />Editar personagem</Button>
-          <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => void commit((draft) => { draft.theme = mode; })} />
+          <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => {
+            const previous = state.theme ?? "light";
+            applyTheme(mode);
+            void commit((draft) => { draft.theme = mode; })
+              .then(() => notify("Tema atualizado."))
+              .catch((error) => {
+                applyTheme(previous);
+                notify(error instanceof Error ? error.message : "Não foi possível salvar o tema.", "error");
+              });
+          }} />
           <section className="profile-session" aria-labelledby="session-title">
             <div>
               <span className="eyebrow">Sessão</span>

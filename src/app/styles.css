@@ -112,6 +112,10 @@ img, svg { max-width: 100%; }
 .metric::after { position: absolute; top: -1rem; right: -1rem; width: 5rem; height: 5rem; border-radius: 50%; background: color-mix(in srgb, var(--metric-color, var(--brand)) 10%, transparent); content: ""; }
 .metric span { position: relative; display: block; color: var(--text-muted); font-size: .78rem; font-weight: 700; }
 .metric strong { position: relative; display: block; margin-top: .45rem; color: var(--metric-color, var(--ink)); font-size: clamp(1.15rem, 2vw, 1.55rem); letter-spacing: -.045em; }
+.metric-comparison { position: relative; display: block; margin-top: .5rem; color: var(--text-muted); font-size: .72rem; font-weight: 700; line-height: 1.3; }
+.metric-comparison.up { color: var(--success); }
+.metric-comparison.down { color: #e11d48; }
+.metric-comparison.stable, .metric-comparison.muted { color: var(--text-muted); }
 .metric.expense { --metric-color: #e11d48; }.metric.available { --metric-color: var(--teal); }.metric.invested { --metric-color: #7c3aed; }.metric.income { --metric-color: #059669; }
 .metric.institutions-total { --metric-color: #7c3aed; grid-column: 1 / -1; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }

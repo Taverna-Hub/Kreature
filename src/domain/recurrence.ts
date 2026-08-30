@@ -113,10 +113,12 @@ export function settleOccurrence(
   const institution = occurrence.institutionId
     ? state.institutions.find((item) => item.id === occurrence.institutionId)
     : undefined;
-  if (!occurrence.institutionId || !institution || institution.archivedAt) throw new Error("Selecione uma conta ativa para concluir a cobrança.");
+  if (paymentMethod !== "credit_card" && (!occurrence.institutionId || !institution || institution.archivedAt)) throw new Error("Selecione uma conta ativa para concluir a cobrança.");
   if (paymentMethod === "credit_card") {
     if (occurrence.kind !== "expense") throw new Error("Cartão de crédito só pode concluir despesas.");
     if (!occurrence.creditCardId) throw new Error("Selecione um cartão de crédito ativo.");
+    const card = state.creditCards.find((item) => item.id === occurrence.creditCardId && !item.archivedAt);
+    if (!card || card.cardType === "debit") throw new Error("Selecione um cartão de crédito ativo.");
     const purchase = recordCardPurchase(state, {
       cardId: occurrence.creditCardId,
       description: occurrence.description,
@@ -132,7 +134,7 @@ export function settleOccurrence(
     settleException(state, plan, occurrence, effectiveDate, effectiveAmount, entry);
     return entry;
   }
-  if (!occurrence.institutionId || !institution) throw new Error("Selecione uma conta ativa para concluir a cobrança.");
+  if (!institution) throw new Error("Selecione uma conta ativa para concluir a cobrança.");
   const entry = recordEntry(state, {
     date: effectiveDate,
     description: occurrence.description,
