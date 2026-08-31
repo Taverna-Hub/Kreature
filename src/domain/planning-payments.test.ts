@@ -36,8 +36,20 @@ describe("planned payment methods", () => {
     const entry = settleOccurrence(state, "card-plan", "2026-08-30");
     expect(entry.date).toBe("2026-08-30");
     expect(entry.institutionId).toBeUndefined();
+    expect(entry.paymentMethod).toBe("credit_card");
+    expect(state.financialMovements[0].paymentMethod).toBe("credit_card");
     expect(institutionBalance(state, "bank")).toBe("1000");
     expect(cardInvoices(state, "card")[0]).toMatchObject({ total: "120", status: "open" });
+  });
+
+  it("settles automatic debit using the linked account", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(account("bank"));
+    state.plannedEntries.push({ id: "debit-plan", startDate: "2026-08-30", description: "Conta", amount: "75", kind: "expense", institutionId: "bank", paymentMethod: "automatic_debit", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    const entry = settleOccurrence(state, "debit-plan", "2026-08-30");
+    expect(entry.paymentMethod).toBe("automatic_debit");
+    expect(state.financialMovements[0].paymentMethod).toBe("automatic_debit");
+    expect(institutionBalance(state, "bank")).toBe("925");
   });
 
   it("pays an invoice without adding an aggregate expense or duplicate payment", () => {

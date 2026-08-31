@@ -16,7 +16,7 @@ export type EntryInput = Omit<
 > & { amount: string; brlRate?: string; source?: LedgerEntry["source"]; ignoredFromAnalytics?: boolean };
 
 type MovementInput = Pick<FinancialMovement, "kind" | "date" | "description" | "amount" | "currency"> &
-  Partial<Pick<FinancialMovement, "categoryId" | "investmentId" | "creditCardId" | "importedDocumentId" | "plannedOccurrenceKey" | "relatedMovementId" | "notes" | "fingerprint" | "legacyUnbalanced" | "systemGenerated">> &
+  Partial<Pick<FinancialMovement, "categoryId" | "paymentMethod" | "investmentId" | "creditCardId" | "importedDocumentId" | "plannedOccurrenceKey" | "relatedMovementId" | "notes" | "fingerprint" | "legacyUnbalanced" | "systemGenerated">> &
   { brlRate?: string; source?: LedgerEntry["source"] };
 
 const negativeKinds = new Set(["expense", "investment", "reserve", "credit_payment", "card_purchase", "card_fee", "card_interest"]);
@@ -38,6 +38,7 @@ function buildEntry(input: EntryInput, id = uid("entry"), createdAt = now(), flo
   const rate = new Decimal(input.brlRate ?? (input.currency === "BRL" ? 1 : 0));
   return {
     ...input, id, amount, brlAmount: new Decimal(amount).mul(rate).toString(), source: input.source ?? "manual",
+    paymentMethod: input.paymentMethod ?? (input.kind === "card_purchase" ? "credit_card" : undefined),
     // Kept for legacy callers only. Analytics now use FinancialMovement.kind.
     ignoredFromAnalytics: input.ignoredFromAnalytics ?? (input.kind === "transfer" || input.kind === "internal_transfer" || input.kind === "investment_contribution" || input.kind === "investment_withdrawal" || input.kind === "credit_payment"),
     createdAt, updatedAt: now(),
@@ -71,7 +72,7 @@ export function createFinancialMovement(state: FinanceState, input: MovementInpu
   const movement: FinancialMovement = {
     id: uid("movement"), kind: input.kind, date: input.date, description: input.description,
     amount: amount.toString(), currency: input.currency, brlAmount: amount.mul(rate).toString(),
-    categoryId: input.categoryId, investmentId: input.investmentId, creditCardId: input.creditCardId,
+    categoryId: input.categoryId, paymentMethod: input.paymentMethod, investmentId: input.investmentId, creditCardId: input.creditCardId,
     importedDocumentId: input.importedDocumentId, plannedOccurrenceKey: input.plannedOccurrenceKey,
     relatedMovementId: input.relatedMovementId, source: input.source ?? "manual", notes: input.notes,
     fingerprint: input.fingerprint, legacyUnbalanced: input.legacyUnbalanced, systemGenerated: input.systemGenerated, createdAt: now(), updatedAt: now(),
@@ -94,6 +95,12 @@ function addLeg(state: FinanceState, movement: FinancialMovement, input: Omit<En
 
 /** Creates a one-leg income/expense/card event while preserving the old return contract. */
 export function recordEntry(state: FinanceState, input: EntryInput): LedgerEntry {
+  if (input.paymentMethod === "credit_card" && input.kind !== "card_purchase") {
+    throw new Error("Compra no cartão deve ser registrada com o cartão selecionado.");
+  }
+  if (input.kind === "card_purchase" && (!input.creditCardId || input.institutionId)) {
+    throw new Error("Compra no cartão exige um cartão e não pode debitar uma conta.");
+  }
   if (input.institutionId) assertAccount(state, input.institutionId);
   if (input.investmentId) assertInvestment(state, input.investmentId);
   if (input.categoryId && !state.categories.some((item) => item.id === input.categoryId && !item.archivedAt)) throw new Error("Categoria invÃ¡lida ou arquivada.");
@@ -102,7 +109,7 @@ export function recordEntry(state: FinanceState, input: EntryInput): LedgerEntry
   const movement = createFinancialMovement(state, {
     kind: movementKindFromEntry(entry, flow), date: entry.date, description: entry.description, amount: entry.amount,
     currency: entry.currency, brlRate: input.brlRate, categoryId: entry.categoryId, investmentId: entry.investmentId,
-    creditCardId: entry.creditCardId, importedDocumentId: entry.importedDocumentId,
+    creditCardId: entry.creditCardId, importedDocumentId: entry.importedDocumentId, paymentMethod: entry.paymentMethod,
     plannedOccurrenceKey: entry.plannedOccurrenceKey, notes: entry.notes, fingerprint: entry.fingerprint, systemGenerated: entry.systemGenerated, source: entry.source,
   });
   entry.financialMovementId = movement.id;
@@ -124,7 +131,7 @@ export function updateEntry(state: FinanceState, id: string, input: EntryInput):
       kind: movementKindFromEntry(updated, categoryFlow(state, updated.categoryId)), date: updated.date,
       description: updated.description, amount: new Decimal(updated.amount).abs().toString(), currency: updated.currency,
       brlAmount: new Decimal(updated.brlAmount).abs().toString(), categoryId: updated.categoryId,
-      investmentId: updated.investmentId, creditCardId: updated.creditCardId, importedDocumentId: updated.importedDocumentId,
+      investmentId: updated.investmentId, creditCardId: updated.creditCardId, importedDocumentId: updated.importedDocumentId, paymentMethod: updated.paymentMethod,
       notes: updated.notes, fingerprint: updated.fingerprint, source: updated.source, updatedAt: now(),
       systemGenerated: updated.systemGenerated,
     });

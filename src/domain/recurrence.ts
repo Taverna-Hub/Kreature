@@ -144,6 +144,7 @@ export function settleOccurrence(
     kind: occurrence.kind,
     categoryId: occurrence.categoryId,
     institutionId: occurrence.institutionId,
+    paymentMethod,
     plannedOccurrenceKey: occurrence.key,
     source: "planned",
   });

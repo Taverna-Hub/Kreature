@@ -132,6 +132,7 @@ export interface LedgerEntry {
   kind: EntryKind;
   categoryId?: string;
   institutionId?: string;
+  paymentMethod?: PaymentMethod;
   transferGroupId?: string;
   /** Canonical movement this balance-impacting leg belongs to. */
   financialMovementId?: string;
@@ -164,6 +165,7 @@ export interface FinancialMovement {
   currency: CurrencyCode;
   brlAmount: DecimalValue;
   categoryId?: string;
+  paymentMethod?: PaymentMethod;
   investmentId?: string;
   creditCardId?: string;
   importedDocumentId?: string;

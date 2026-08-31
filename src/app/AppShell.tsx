@@ -31,6 +31,18 @@ function ProfileAvatar() {
   );
 }
 
+export function LoadingScreen() {
+  const { state } = useFinance();
+  return (
+    <div className="loading" aria-live="polite">
+      <span className="loading-character" aria-hidden="true">
+        <Mascot config={{ ...state.profile, background: "plain" }} size={76} animated={false} showShadow={false} />
+      </span>
+      <p>Organizando suas finanças...</p>
+    </div>
+  );
+}
+
 export function AppShell() {
   const navigate = useNavigate();
   const path = useRouterState({ select: (state) => state.location.pathname });
@@ -111,7 +123,9 @@ export function AppShell() {
       {error || authError ? <div className="global-error" role="alert">{error ?? authError}</div> : null}
       {loading || status === "loading" ? (
         <div className="loading" aria-live="polite">
-          <span className="brand-mark"><span /></span>
+          <span className="loading-character" aria-hidden="true">
+            <Mascot config={{ ...state.profile, background: "plain" }} size={76} animated={false} showShadow={false} />
+          </span>
           <p>Organizando suas finanças...</p>
         </div>
       ) : <Outlet />}

@@ -59,7 +59,7 @@ import { fetchAssetQuote, fetchExchangeRate } from "@/lib/market";
 import { dateLabel, decimalInput, money, monthLabel } from "@/lib/format";
 import { catalogInstitution, searchInstitutionCatalog } from "@/domain/institution-catalog";
 import { CARD_NETWORKS, CARD_TYPES, normalizeCardNetwork } from "@/domain/card-brands";
-import { cardInvoices, payCardInvoice, recordCardPurchase, updateCardPurchase } from "@/domain/cards";
+import { assertCardPurchaseStructuralChangeAllowed, attachCardPurchase, cardInvoices, payCardInvoice, recordCardPurchase, removeCardPurchase, updateCardPurchase } from "@/domain/cards";
 import { CreditCardVisual } from "@/features/finance/CreditCardVisual";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
@@ -291,20 +291,25 @@ export function LaunchesPage() {
     .sort((a, b) => b.date.localeCompare(a.date));
   const save = async (input: EntryInput & { installments?: number }, toInstitutionId?: string, investmentId?: string) => {
     await commit((draft) => {
-      if (editing && input.kind === "card_purchase" && input.creditCardId) {
-        const updated = updateEntry(draft, editing.id, input);
-        updateCardPurchase(draft, updated.id, {
-          cardId: input.creditCardId,
-          description: input.description,
-          amount: new Decimal(input.amount).abs().toString(),
-          currency: input.currency,
-          date: input.date,
-          categoryId: input.categoryId,
-          installments: input.installments ?? 1,
-          notes: input.notes,
-        });
-      } else if (input.kind === "card_purchase" && input.creditCardId) {
-        recordCardPurchase(draft, {
+      const existingPurchase = editing ? draft.cardPurchases.find((purchase) => purchase.ledgerEntryId === editing.id) : undefined;
+      const isCardPayment = input.paymentMethod === "credit_card" || input.kind === "card_purchase";
+      if (isCardPayment && input.creditCardId) {
+        const cardInput = { ...input, kind: "card_purchase" as const, institutionId: undefined, paymentMethod: "credit_card" as const };
+        if (editing) {
+          const updated = updateEntry(draft, editing.id, cardInput);
+          const purchaseInput = {
+            cardId: input.creditCardId,
+            description: input.description,
+            amount: new Decimal(input.amount).abs().toString(),
+            currency: input.currency,
+            date: input.date,
+            categoryId: input.categoryId,
+            installments: input.installments ?? 1,
+            notes: input.notes,
+          };
+          if (existingPurchase) updateCardPurchase(draft, updated.id, purchaseInput);
+          else attachCardPurchase(draft, updated.id, purchaseInput);
+        } else recordCardPurchase(draft, {
           cardId: input.creditCardId,
           description: input.description,
           amount: input.amount,
@@ -314,6 +319,12 @@ export function LaunchesPage() {
           installments: input.installments ?? 1,
           notes: input.notes,
         });
+      } else if (editing && existingPurchase) {
+        assertCardPurchaseStructuralChangeAllowed(draft, editing.id);
+        updateEntry(draft, editing.id, { ...input, kind: input.kind === "card_purchase" ? "expense" : input.kind, creditCardId: undefined });
+        removeCardPurchase(draft, editing.id);
+      } else if (input.kind === "card_purchase") {
+        throw new Error("Selecione um cartão de crédito ativo.");
       } else if (input.kind === "credit_payment" && input.creditCardId && input.invoiceKey && input.institutionId) {
         payCardInvoice(draft, { cardId: input.creditCardId, invoiceKey: input.invoiceKey, institutionId: input.institutionId, date: input.date, notes: input.notes });
       } else if ((input.kind === "transfer" || input.kind === "internal_transfer") && input.institutionId && toInstitutionId)
@@ -477,8 +488,11 @@ function EntryForm({
   const [kind, setKind] = useState<EntryKind>(entry?.kind ?? "expense");
   const [date, setDate] = useState(entry?.date ?? today());
   const [toInstitutionId, setToInstitutionId] = useState("");
+  const [institutionId, setInstitutionId] = useState(entry?.institutionId ?? "");
   const [investmentId, setInvestmentId] = useState(entry?.investmentId ?? "");
   const [creditCardId, setCreditCardId] = useState(entry?.creditCardId ?? "");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(entry?.paymentMethod ?? (entry?.kind === "card_purchase" ? "credit_card" : "pix"));
+  const cardPayment = kind === "card_purchase" || (kind === "expense" && paymentMethod === "credit_card");
   const invoices = creditCardId ? cardInvoices(state, creditCardId).filter((item) => !item.paidEntryId) : [];
   return (
     <form
@@ -486,20 +500,22 @@ function EntryForm({
       onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
-          const institutionId = String(data.get("institutionId") || "") || undefined;
-          const institution = state.institutions.find((item) => item.id === institutionId);
+          const selectedInstitutionId = institutionId || undefined;
+          const institution = state.institutions.find((item) => item.id === selectedInstitutionId);
           const card = state.creditCards.find((item) => item.id === creditCardId);
-        void onSave(
-          {
+          const resolvedKind = cardPayment ? "card_purchase" : kind;
+          void onSave(
+            {
             date,
             description: String(data.get("description")),
             amount: decimalInput(data.get("amount")),
             currency: institution?.currency ?? card?.currency ?? "BRL",
             brlRate: institution?.exchangeRate ?? "1",
-            kind,
+            kind: resolvedKind,
             categoryId: String(data.get("categoryId") || "") || undefined,
-            institutionId,
-            creditCardId: creditCardId || undefined,
+            institutionId: cardPayment ? undefined : selectedInstitutionId,
+            paymentMethod: cardPayment ? "credit_card" : paymentMethod,
+            creditCardId: cardPayment ? creditCardId || undefined : undefined,
             invoiceKey: String(data.get("invoiceKey") || "") || undefined,
             installments: Number(data.get("installments") || 1),
             notes: String(data.get("notes") || "") || undefined,
@@ -532,14 +548,15 @@ function EntryForm({
           placeholder="0,00"
         />
       </Field>
-      <Field label="Instituição">
+      {!cardPayment && <Field label="Instituição">
         <CustomSelect
           label="Instituição"
           name="institutionId"
-          defaultValue={entry?.institutionId ?? ""}
+          value={institutionId}
+          onChange={setInstitutionId}
           items={[...emptyOption("Sem instituição"), ...institutionOptions(state.institutions, true)]}
         />
-      </Field>
+      </Field>}
       {(kind === "transfer" || kind === "internal_transfer") && (
         <Field label="Instituição de destino">
           <CustomSelect
@@ -562,7 +579,7 @@ function EntryForm({
           />
         </Field>
       )}
-      {(kind === "card_purchase" || kind === "credit_payment") && (
+      {(cardPayment || kind === "credit_payment") && (
         <Field label="Cartão">
           <CustomSelect
             label="Cartão"
@@ -575,6 +592,21 @@ function EntryForm({
       )}
       {kind === "card_purchase" && (
         <Field label="Parcelas"><input required min="1" max="360" type="number" name="installments" defaultValue={state.cardPurchases.find((purchase) => purchase.ledgerEntryId === entry?.id)?.installments ?? 1} /></Field>
+      )}
+      {(kind === "expense" || kind === "card_purchase") && (
+        <Field label="Forma de pagamento">
+          <CustomSelect
+            label="Forma de pagamento"
+            name="paymentMethod"
+            value={cardPayment ? "credit_card" : paymentMethod}
+            onChange={(next) => { setPaymentMethod(next as PaymentMethod); if (next !== "credit_card") setCreditCardId(""); }}
+            items={[
+              ["pix", "Pix"],
+              ["automatic_debit", "Débito automático"],
+              ["credit_card", "Cartão de crédito"],
+            ]}
+          />
+        </Field>
       )}
       {kind === "credit_payment" && (
         <Field label="Fatura aberta">
@@ -2350,7 +2382,7 @@ function PlanningDialog({
               amount: decimalInput(data.get("amount")),
               kind: String(data.get("kind")) as "income" | "expense",
               categoryId: String(data.get("categoryId") || "") || undefined,
-              institutionId: String(data.get("institutionId") || "") || undefined,
+              institutionId: paymentMethod === "credit_card" ? undefined : String(data.get("institutionId") || "") || undefined,
               paymentMethod: String(data.get("paymentMethod") || "pix") as PaymentMethod,
               creditCardId: String(data.get("creditCardId") || "") || undefined,
               frequency: String(data.get("frequency") || value?.frequency || "once") as RecurrenceFrequency,
@@ -2449,22 +2481,22 @@ function PlanningDialog({
             items={[...emptyOption("Sem categoria"), ...categories.map((item) => [item.id, item.name] as const)]}
           />
         </Field>
-        <Field label="Instituição">
+        {paymentMethod !== "credit_card" && <Field label="Instituição">
           <CustomSelect
             label="Instituição"
             name="institutionId"
             value={institutionId}
             onChange={setInstitutionId}
-            required={paymentMethod !== "credit_card"}
+            required
             items={[...emptyOption("Sem instituição"), ...institutionOptions(state.institutions)]}
           />
-        </Field>
+        </Field>}
         <Field label="Forma de pagamento">
           <CustomSelect
             label="Forma de pagamento"
             name="paymentMethod"
             value={paymentMethod}
-            onChange={(next) => setPaymentMethod(next as PaymentMethod)}
+            onChange={(next) => { const method = next as PaymentMethod; setPaymentMethod(method); if (method === "credit_card") setInstitutionId(""); }}
             items={[
               ["pix", "Pix"],
               ["automatic_debit", "Débito automático"],

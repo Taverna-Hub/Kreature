@@ -49,7 +49,9 @@ export function CharacterCustomizer({ value, onSave, onCancel }: {
   return (
     <>
       <section className="customizer" aria-label="Editor do personagem">
-        <aside className="preview"><ProfileCard config={draft} size={280} /></aside>
+        <aside className="preview">
+          <ProfileCard config={draft} size={280} />
+        </aside>
         <section className="customizer-controls">
         <div className="tabs" role="tablist" aria-label="Partes do personagem">
           {CATEGORIES.map((item) => (
@@ -95,6 +97,7 @@ function OptionPanel({ active, config, update, toggleAccessory }: {
   if (active === "identity") return (
     <div className="profile-fields">
       <ProfileField label="Apelido"><input maxLength={24} value={config.nickname} onChange={(event) => update("nickname", event.target.value)} /></ProfileField>
+      <ProfileField label="Título"><input maxLength={60} value={config.title} onChange={(event) => update("title", event.target.value)} /></ProfileField>
       <ProfileField full label="Bio"><textarea maxLength={180} rows={4} value={config.bio} onChange={(event) => update("bio", event.target.value)} /></ProfileField>
     </div>
   );

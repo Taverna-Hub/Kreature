@@ -49,11 +49,34 @@ const asNumberString = (value: unknown, fallback = "0") => typeof value === "num
 const asDate = (value: unknown) => asString(value).slice(0, 10);
 const asTimestamp = (value: unknown) => asString(value, new Date(0).toISOString());
 const nullable = (value: string | undefined) => value ?? null;
-const isMissingCardTypeColumn = (cause: unknown) => {
-  const error = cause as Partial<RepositoryDatabaseError> & { message?: string };
-  return (error.code === "PGRST204" || error.code === "42703") && /card_type/i.test(error.message ?? "");
-};
 const changed = (before: unknown, after: unknown) => JSON.stringify(before) !== JSON.stringify(after);
+const isCardRelatedEntry = (entry?: LedgerEntry) => Boolean(entry && (entry.kind === "card_purchase" || entry.kind === "credit_payment" || entry.creditCardId || entry.paymentMethod === "credit_card" || entry.invoiceKey));
+const isCardRelatedMovement = (movement?: FinancialMovement) => Boolean(movement && (movement.kind === "card_purchase" || movement.kind === "credit_payment" || movement.creditCardId || movement.paymentMethod === "credit_card"));
+
+const movementRecord = (item: FinancialMovement, userId: string): Row => ({
+  id: item.id, user_id: userId, kind: item.kind, occurred_on: item.date.slice(0, 10), description: item.description, amount: item.amount,
+  currency: item.currency, brl_amount: item.brlAmount, category_id: nullable(item.categoryId), payment_method: nullable(item.paymentMethod),
+  investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId), imported_document_id: nullable(item.importedDocumentId),
+  planned_occurrence_key: nullable(item.plannedOccurrenceKey), related_movement_id: nullable(item.relatedMovementId), source: item.source,
+  notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), legacy_unbalanced: Boolean(item.legacyUnbalanced), system_generated: Boolean(item.systemGenerated),
+  created_at: item.createdAt, updated_at: item.updatedAt,
+});
+
+const entryRecord = (item: LedgerEntry, userId: string): Row => ({
+  id: item.id, user_id: userId, account_id: nullable(item.institutionId), category_id: nullable(item.categoryId), payment_method: nullable(item.paymentMethod ?? (item.kind === "card_purchase" ? "credit_card" : undefined)),
+  investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId), transfer_group_id: nullable(item.transferGroupId), financial_movement_id: nullable(item.financialMovementId),
+  imported_document_id: nullable(item.importedDocumentId), occurred_on: item.date.slice(0, 10), occurred_at: item.date.includes("T") ? item.date : null, description: item.description,
+  amount: item.amount, currency: item.currency, brl_amount: item.brlAmount, kind: item.kind, invoice_key: nullable(item.invoiceKey), planned_occurrence_key: nullable(item.plannedOccurrenceKey),
+  source: item.source, ignored_from_analytics: item.ignoredFromAnalytics, system_generated: Boolean(item.systemGenerated), notes: nullable(item.notes), fingerprint: nullable(item.fingerprint),
+  pending_reconciliation: Boolean(item.pendingReconciliation), created_at: item.createdAt, updated_at: item.updatedAt,
+});
+
+const purchaseRecord = (item: CardPurchase, userId: string): Row => ({
+  id: item.id, user_id: userId, card_id: item.cardId, ledger_entry_id: item.ledgerEntryId, description: item.description, amount: item.amount, currency: item.currency,
+  occurred_on: item.date, category_id: nullable(item.categoryId), installments: item.installments, installment_number: item.installmentNumber ?? null, total_installments: item.totalInstallments ?? null,
+  transaction_kind: item.transactionKind ?? "purchase", imported_document_id: nullable(item.importedDocumentId), first_invoice_key: item.firstInvoiceKey, notes: nullable(item.notes),
+  created_at: item.createdAt, updated_at: item.updatedAt,
+});
 
 function databaseMessage(context: string, cause: { code?: string; message?: string } | null) {
   if (cause?.message) console.error(`Supabase ${context}:`, cause.message);
@@ -69,10 +92,7 @@ function databaseMessage(context: string, cause: { code?: string; message?: stri
   if (cause?.code === "23503") {
     return "Uma conta, categoria ou instituição selecionada não está disponível para esta sessão.";
   }
-  if ((cause?.code === "PGRST204" || cause?.code === "42703") && /card_type/i.test(cause.message ?? "")) {
-    return "A coluna card_type ainda nÃ£o existe no Supabase. Aplique a migration de tipo do cartÃ£o.";
-  }
-  if (cause?.code === "PGRST204" || cause?.code === "42703") {
+  if (cause?.code === "PGRST202" || cause?.code === "PGRST204" || cause?.code === "42703" || cause?.code === "42883") {
     return "A base do Supabase estÃ¡ desatualizada. Aplique as migrations locais antes de salvar novamente.";
   }
   if (cause?.code === "23505") {
@@ -193,7 +213,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
   private entry = (row: Row): LedgerEntry => ({
     id: asString(row.id), date: asDate(row.occurred_on), description: asString(row.description), amount: asNumberString(row.amount), currency: asString(row.currency, "BRL"),
     brlAmount: asNumberString(row.brl_amount), kind: asString(row.kind) as LedgerEntry["kind"], categoryId: asOptionalString(row.category_id),
-    institutionId: asOptionalString(row.account_id), transferGroupId: asOptionalString(row.transfer_group_id), financialMovementId: asOptionalString(row.financial_movement_id), investmentId: asOptionalString(row.investment_id),
+    institutionId: asOptionalString(row.account_id), paymentMethod: (asOptionalString(row.payment_method) ?? (asString(row.kind) === "card_purchase" ? "credit_card" : undefined)) as LedgerEntry["paymentMethod"], transferGroupId: asOptionalString(row.transfer_group_id), financialMovementId: asOptionalString(row.financial_movement_id), investmentId: asOptionalString(row.investment_id),
     creditCardId: asOptionalString(row.credit_card_id), importedDocumentId: asOptionalString(row.imported_document_id), invoiceKey: asOptionalString(row.invoice_key), plannedOccurrenceKey: asOptionalString(row.planned_occurrence_key), pendingReconciliation: Boolean(row.pending_reconciliation),
     source: asString(row.source, "manual") as LedgerEntry["source"], ignoredFromAnalytics: Boolean(row.ignored_from_analytics), systemGenerated: Boolean(row.system_generated), notes: asOptionalString(row.notes),
     fingerprint: asOptionalString(row.fingerprint), createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
@@ -202,7 +222,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
   private movement = (row: Row): FinancialMovement => ({
     id: asString(row.id), kind: asString(row.kind) as FinancialMovement["kind"], date: asDate(row.occurred_on), description: asString(row.description),
     amount: asNumberString(row.amount), currency: asString(row.currency, "BRL"), brlAmount: asNumberString(row.brl_amount), categoryId: asOptionalString(row.category_id),
-    investmentId: asOptionalString(row.investment_id), creditCardId: asOptionalString(row.credit_card_id), importedDocumentId: asOptionalString(row.imported_document_id),
+    paymentMethod: (asOptionalString(row.payment_method) ?? (asString(row.kind) === "card_purchase" ? "credit_card" : undefined)) as FinancialMovement["paymentMethod"], investmentId: asOptionalString(row.investment_id), creditCardId: asOptionalString(row.credit_card_id), importedDocumentId: asOptionalString(row.imported_document_id),
     plannedOccurrenceKey: asOptionalString(row.planned_occurrence_key), relatedMovementId: asOptionalString(row.related_movement_id), source: asString(row.source, "manual") as FinancialMovement["source"],
     notes: asOptionalString(row.notes), fingerprint: asOptionalString(row.fingerprint), legacyUnbalanced: Boolean(row.legacy_unbalanced), systemGenerated: Boolean(row.system_generated), createdAt: asTimestamp(row.created_at), updatedAt: asTimestamp(row.updated_at),
   });
@@ -258,34 +278,37 @@ export class SupabaseFinanceRepository implements FinanceRepository {
       issuer_name: nullable(item.issuerName), last_four: nullable(item.lastFour), network: nullable(item.network), card_type: item.cardType ?? "credit", cardholder_name: nullable(item.cardholderName), payer_account_id: nullable(item.payerInstitutionId), credit_limit: item.limit, closing_day: item.closingDay, due_day: item.dueDay,
       currency: item.currency, notes: nullable(item.notes), archived_at: nullable(item.archivedAt), created_at: item.createdAt,
       }));
-      try {
-        await this.sync("credit_cards", previous.creditCards, next.creditCards, cardRecords);
-      } catch (cause) {
-        if (!isMissingCardTypeColumn(cause)) throw cause;
-        if (next.creditCards.some((item) => item.cardType === "debit")) {
-          throw new Error("Para salvar cartões de débito, aplique a migration 20260830110000_credit_card_type.sql no Supabase.");
-        }
-        // Compatibility with a remote database that has not received the new column yet.
-        const legacyCardRecords = cardRecords.map((record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== "card_type")));
-        await this.sync("credit_cards", previous.creditCards, next.creditCards, legacyCardRecords);
-      }
+      await this.sync("credit_cards", previous.creditCards, next.creditCards, cardRecords);
     }
     if (changed(previous.importedDocuments, next.importedDocuments)) await this.sync("imported_documents", previous.importedDocuments, next.importedDocuments, next.importedDocuments.map((item) => ({ id: item.id, user_id: userId, kind: item.kind, content_hash: item.contentHash, source: item.source, credit_card_id: nullable(item.creditCardId), period_start: nullable(item.periodStart), period_end: nullable(item.periodEnd), closing_date: nullable(item.closingDate), due_date: nullable(item.dueDate), total: nullable(item.total), created_at: item.createdAt })));
-    if (changed(previous.financialMovements, next.financialMovements)) await this.sync("financial_movements", previous.financialMovements, next.financialMovements, next.financialMovements.map((item) => ({
+    const cardChanges = await this.persistCardTransactions(previous, next, userId);
+    if (changed(previous.financialMovements, next.financialMovements)) {
+      const previousMovements = previous.financialMovements.filter((item) => !cardChanges.movementIds.has(item.id));
+      const nextMovements = next.financialMovements.filter((item) => !cardChanges.movementIds.has(item.id));
+      await this.sync("financial_movements", previousMovements, nextMovements, nextMovements.map((item) => ({
       id: item.id, user_id: userId, kind: item.kind, occurred_on: item.date.slice(0, 10), description: item.description, amount: item.amount, currency: item.currency, brl_amount: item.brlAmount,
-      category_id: nullable(item.categoryId), investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId), imported_document_id: nullable(item.importedDocumentId),
+      category_id: nullable(item.categoryId), payment_method: nullable(item.paymentMethod), investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId), imported_document_id: nullable(item.importedDocumentId),
       planned_occurrence_key: nullable(item.plannedOccurrenceKey), related_movement_id: nullable(item.relatedMovementId), source: item.source, notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), legacy_unbalanced: Boolean(item.legacyUnbalanced), system_generated: Boolean(item.systemGenerated), created_at: item.createdAt,
-    })));
-    if (changed(previous.entries, next.entries)) await this.sync("ledger_entries", previous.entries, next.entries, next.entries.map((item) => ({
-      id: item.id, user_id: userId, account_id: nullable(item.institutionId), category_id: nullable(item.categoryId), investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId),
+      })));
+    }
+    if (changed(previous.entries, next.entries)) {
+      const previousEntries = previous.entries.filter((item) => !cardChanges.entryIds.has(item.id));
+      const nextEntries = next.entries.filter((item) => !cardChanges.entryIds.has(item.id));
+      await this.sync("ledger_entries", previousEntries, nextEntries, nextEntries.map((item) => ({
+      id: item.id, user_id: userId, account_id: nullable(item.institutionId), category_id: nullable(item.categoryId), payment_method: nullable(item.paymentMethod ?? (item.kind === "card_purchase" ? "credit_card" : undefined)), investment_id: nullable(item.investmentId), credit_card_id: nullable(item.creditCardId),
       transfer_group_id: nullable(item.transferGroupId), financial_movement_id: nullable(item.financialMovementId), imported_document_id: nullable(item.importedDocumentId), occurred_on: item.date.slice(0, 10), occurred_at: item.date.includes("T") ? item.date : null, description: item.description,
       amount: item.amount, currency: item.currency, brl_amount: item.brlAmount, kind: item.kind, invoice_key: nullable(item.invoiceKey), planned_occurrence_key: nullable(item.plannedOccurrenceKey),
       source: item.source, ignored_from_analytics: item.ignoredFromAnalytics, system_generated: Boolean(item.systemGenerated), notes: nullable(item.notes), fingerprint: nullable(item.fingerprint), pending_reconciliation: Boolean(item.pendingReconciliation), created_at: item.createdAt,
-    })));
-    if (changed(previous.cardPurchases, next.cardPurchases)) await this.sync("card_purchases", previous.cardPurchases, next.cardPurchases, next.cardPurchases.map((item) => ({
+      })));
+    }
+    if (changed(previous.cardPurchases, next.cardPurchases)) {
+      const previousPurchases = previous.cardPurchases.filter((item) => !cardChanges.purchaseIds.has(item.id));
+      const nextPurchases = next.cardPurchases.filter((item) => !cardChanges.purchaseIds.has(item.id));
+      await this.sync("card_purchases", previousPurchases, nextPurchases, nextPurchases.map((item) => ({
       id: item.id, user_id: userId, card_id: item.cardId, ledger_entry_id: item.ledgerEntryId, description: item.description, amount: item.amount, currency: item.currency,
       occurred_on: item.date, category_id: nullable(item.categoryId), installments: item.installments, installment_number: item.installmentNumber ?? null, total_installments: item.totalInstallments ?? null, transaction_kind: item.transactionKind ?? "purchase", imported_document_id: nullable(item.importedDocumentId), first_invoice_key: item.firstInvoiceKey, notes: nullable(item.notes), created_at: item.createdAt,
-    })));
+      })));
+    }
     if (changed(previous.classificationRules, next.classificationRules)) await this.sync("classification_rules", previous.classificationRules, next.classificationRules, next.classificationRules.map((item) => ({
       id: item.id, user_id: userId, match: item.match, category_id: item.categoryId, flow: item.kind, created_at: item.createdAt,
     })));
@@ -293,6 +316,80 @@ export class SupabaseFinanceRepository implements FinanceRepository {
       id: item.id, user_id: userId, start_date: item.startDate, description: item.description, amount: item.amount, kind: item.kind, category_id: nullable(item.categoryId),
       account_id: nullable(item.institutionId), payment_method: item.paymentMethod ?? "pix", credit_card_id: nullable(item.creditCardId), frequency: item.frequency, end_date: nullable(item.endDate), occurrence_count: item.occurrenceCount ?? null, exceptions: item.exceptions, created_at: item.createdAt,
     })));
+  }
+
+  private async persistCardTransactions(previous: FinanceState, next: FinanceState, userId: string) {
+    const previousEntries = new Map(previous.entries.map((item) => [item.id, item]));
+    const nextEntries = new Map(next.entries.map((item) => [item.id, item]));
+    const previousMovements = new Map(previous.financialMovements.map((item) => [item.id, item]));
+    const nextMovements = new Map(next.financialMovements.map((item) => [item.id, item]));
+    const previousPurchases = new Map(previous.cardPurchases.map((item) => [item.id, item]));
+    const nextPurchases = new Map(next.cardPurchases.map((item) => [item.id, item]));
+    const operations = new Map<string, { previousEntry?: LedgerEntry; nextEntry?: LedgerEntry; previousMovement?: FinancialMovement; nextMovement?: FinancialMovement }>();
+    const addOperation = (entryId: string, previousEntry?: LedgerEntry, nextEntry?: LedgerEntry, previousMovement?: FinancialMovement, nextMovement?: FinancialMovement) => {
+      const current = operations.get(entryId) ?? {};
+      operations.set(entryId, { previousEntry: previousEntry ?? current.previousEntry, nextEntry: nextEntry ?? current.nextEntry, previousMovement: previousMovement ?? current.previousMovement, nextMovement: nextMovement ?? current.nextMovement });
+    };
+    const allEntryIds = new Set([...previousEntries.keys(), ...nextEntries.keys()]);
+    for (const entryId of allEntryIds) {
+      const before = previousEntries.get(entryId);
+      const after = nextEntries.get(entryId);
+      if (!changed(before, after) || (!isCardRelatedEntry(before) && !isCardRelatedEntry(after))) continue;
+      addOperation(entryId, before, after,
+        before?.financialMovementId ? previousMovements.get(before.financialMovementId) : undefined,
+        after?.financialMovementId ? nextMovements.get(after.financialMovementId) : undefined);
+    }
+    const allPurchaseIds = new Set([...previousPurchases.keys(), ...nextPurchases.keys()]);
+    for (const purchaseId of allPurchaseIds) {
+      const before = previousPurchases.get(purchaseId);
+      const after = nextPurchases.get(purchaseId);
+      if (!changed(before, after)) continue;
+      const entryId = after?.ledgerEntryId ?? before?.ledgerEntryId;
+      if (entryId) {
+        const previousEntry = previousEntries.get(entryId);
+        const nextEntry = nextEntries.get(entryId);
+        const previousMovementId = previousEntry?.financialMovementId;
+        const nextMovementId = nextEntry?.financialMovementId;
+        addOperation(entryId, previousEntry, nextEntry,
+          previousMovementId ? previousMovements.get(previousMovementId) : undefined,
+          nextMovementId ? nextMovements.get(nextMovementId) : undefined);
+      }
+    }
+    const allMovementIds = new Set([...previousMovements.keys(), ...nextMovements.keys()]);
+    for (const movementId of allMovementIds) {
+      const before = previousMovements.get(movementId);
+      const after = nextMovements.get(movementId);
+      if (!changed(before, after) || (!isCardRelatedMovement(before) && !isCardRelatedMovement(after))) continue;
+      const previousEntry = [...previousEntries.values()].find((entry) => entry.financialMovementId === movementId);
+      const nextEntry = [...nextEntries.values()].find((entry) => entry.financialMovementId === movementId);
+      addOperation(nextEntry?.id ?? previousEntry?.id ?? `movement:${movementId}`, previousEntry, nextEntry, before, after);
+    }
+
+    const persistedEntryIds = new Set<string>();
+    const persistedMovementIds = new Set<string>();
+    const persistedPurchaseIds = new Set<string>();
+    for (const operation of operations.values()) {
+      const entryId = operation.nextEntry?.id ?? operation.previousEntry?.id;
+      const movementId = operation.nextMovement?.id ?? operation.previousMovement?.id;
+      const purchase = operation.nextEntry ? next.cardPurchases.find((item) => item.ledgerEntryId === operation.nextEntry?.id) : undefined;
+      const previousPurchase = operation.previousEntry ? previous.cardPurchases.find((item) => item.ledgerEntryId === operation.previousEntry?.id) : undefined;
+      const { error } = await getSupabase().rpc("persist_card_transaction", {
+        p_entry: operation.nextEntry ? entryRecord(operation.nextEntry, userId) : null,
+        p_movement: operation.nextMovement ? movementRecord(operation.nextMovement, userId) : null,
+        p_purchase: purchase ? purchaseRecord(purchase, userId) : null,
+        p_previous_entry_id: entryId ?? null,
+        p_previous_movement_id: movementId ?? null,
+        p_previous_purchase_id: previousPurchase?.id ?? null,
+      });
+      if (error) throw new Error(databaseMessage("salvar o lançamento do cartão", error));
+      if (operation.nextEntry) persistedEntryIds.add(operation.nextEntry.id);
+      if (operation.previousEntry) persistedEntryIds.add(operation.previousEntry.id);
+      if (operation.nextMovement) persistedMovementIds.add(operation.nextMovement.id);
+      if (operation.previousMovement) persistedMovementIds.add(operation.previousMovement.id);
+      if (purchase) persistedPurchaseIds.add(purchase.id);
+      if (previousPurchase) persistedPurchaseIds.add(previousPurchase.id);
+    }
+    return { entryIds: persistedEntryIds, movementIds: persistedMovementIds, purchaseIds: persistedPurchaseIds };
   }
 
   private async categoryRecords(previous: Category[], next: Category[], userId: string): Promise<Row[]> {

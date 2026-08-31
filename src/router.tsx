@@ -1,6 +1,6 @@
 import { lazy, Suspense, type ComponentType } from "react";
 import { createRootRoute, createRoute, createRouter, redirect, Outlet } from "@tanstack/react-router";
-import { AppShell } from "@/app/AppShell";
+import { AppShell, LoadingScreen } from "@/app/AppShell";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
 import { AuthCallbackPage } from "@/features/auth/AuthCallbackPage";
@@ -8,7 +8,7 @@ import { AuthCallbackPage } from "@/features/auth/AuthCallbackPage";
 function lazyPage(load: () => Promise<{ default: ComponentType }>) {
   const LazyPage = lazy(load);
   return function RoutePage() {
-    return <Suspense fallback={<div className="page-route-loading" aria-live="polite">Carregando página…</div>}><LazyPage /></Suspense>;
+    return <Suspense fallback={<LoadingScreen />}><LazyPage /></Suspense>;
   };
 }
 

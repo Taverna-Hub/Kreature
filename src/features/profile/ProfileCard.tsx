@@ -14,6 +14,7 @@ export function ProfileCard({ config, size = 240 }: { config: ProfileConfig; siz
       </div>
       <div className="profile-card-copy">
         <h2>@{config.nickname || "seu_apelido"}</h2>
+        {config.title && <p className="profile-card-title">{config.title}</p>}
         {config.bio && <p className="profile-card-bio">{config.bio}</p>}
       </div>
     </div>

@@ -13,4 +13,11 @@ describe("CharacterProfile", () => {
     fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ nickname: "Poupador" }));
   });
+
+  it("permite preencher o título na etapa de identidade", () => {
+    render(<CharacterCustomizer value={DEFAULT_PROFILE} onSave={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Identidade" }));
+    fireEvent.change(screen.getByLabelText("Título"), { target: { value: "Guardião das finanças" } });
+    expect(screen.getByLabelText("Título")).toHaveValue("Guardião das finanças");
+  });
 });

@@ -9,10 +9,12 @@ function Body({
   shape,
   main,
   shade,
+  showShadow,
 }: {
   shape: ProfileConfig["body"];
   main: string;
   shade: string;
+  showShadow: boolean;
 }) {
   const shadowId = useId();
   const variants: Record<ProfileConfig["body"], { rx: number; ry: number; cy: number }> = {
@@ -84,15 +86,15 @@ function Body({
       animate={{ scale: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 320, damping: 18 }}
     >
-      {specialShadow && (
+      {specialShadow && showShadow && (
         <defs>
           <filter id={shadowId} x="-30%" y="-30%" width="160%" height="180%">
             <feDropShadow dx="0" dy="7" stdDeviation="3" floodColor={shade} floodOpacity="0.42" />
           </filter>
         </defs>
       )}
-      <g filter={specialShadow ? `url(#${shadowId})` : undefined}>{renderShape()}</g>
-      {!specialShadow && (
+      <g filter={specialShadow && showShadow ? `url(#${shadowId})` : undefined}>{renderShape()}</g>
+      {!specialShadow && showShadow && (
         <ellipse cx={100} cy={v.cy + v.ry - 18} rx={v.rx - 6} ry={14} fill={shade} opacity={0.35} />
       )}
       <ellipse
@@ -896,10 +898,12 @@ export function Mascot({
   config,
   size = 240,
   animated = true,
+  showShadow = true,
 }: {
   config: ProfileConfig;
   size?: number;
   animated?: boolean;
+  showShadow?: boolean;
 }) {
   const reduceMotion = useReducedMotion();
   const color = getColor(config.color);
@@ -916,7 +920,7 @@ export function Mascot({
       }
     >
       <Background kind={config.background} color={color.main} />
-      <Body shape={config.body} main={color.main} shade={color.shade} />
+      <Body shape={config.body} main={color.main} shade={color.shade} showShadow={showShadow} />
       <Face expression={config.expression} />
       <Accessories list={config.accessories} />
     </motion.svg>

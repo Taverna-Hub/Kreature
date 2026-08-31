@@ -4,6 +4,8 @@ import { now, uid } from "./defaults";
 import { recordEntry } from "./ledger";
 import type { CardPurchase, CreditCard, FinanceState, LedgerEntry } from "./types";
 
+type CardPurchaseInput = Omit<CardPurchase, "id" | "createdAt" | "updatedAt" | "ledgerEntryId" | "firstInvoiceKey">;
+
 export interface InvoiceInstallment {
   purchaseId: string;
   installment: number;
@@ -125,7 +127,7 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
 
 export function recordCardPurchase(
   state: FinanceState,
-  input: Omit<CardPurchase, "id" | "createdAt" | "updatedAt" | "ledgerEntryId" | "firstInvoiceKey"> &
+  input: CardPurchaseInput &
     Pick<Partial<LedgerEntry>, "source" | "plannedOccurrenceKey" | "systemGenerated">,
 ) {
   const card = state.creditCards.find((item) => item.id === input.cardId && !item.archivedAt);
@@ -145,14 +147,26 @@ export function recordCardPurchase(
     source: input.source ?? "manual",
     plannedOccurrenceKey: input.plannedOccurrenceKey,
     systemGenerated: input.systemGenerated,
+    paymentMethod: "credit_card",
     notes: input.notes,
   });
+  return attachCardPurchase(state, ledgerEntry.id, input);
+}
+
+export function attachCardPurchase(state: FinanceState, ledgerEntryId: string, input: CardPurchaseInput) {
+  const entry = state.entries.find((item) => item.id === ledgerEntryId);
+  if (!entry || entry.kind !== "card_purchase") throw new Error("O lançamento não é uma compra no cartão.");
+  if (state.cardPurchases.some((item) => item.ledgerEntryId === ledgerEntryId)) throw new Error("Este lançamento já possui uma compra no cartão.");
+  const card = state.creditCards.find((item) => item.id === input.cardId && !item.archivedAt);
+  if (!card) throw new Error("Selecione um cartão válido.");
+  if (card.cardType === "debit") throw new Error("Faturas e compras parceladas exigem um cartão de crédito.");
+  if (!Number.isInteger(input.installments) || input.installments < 1) throw new Error("Informe ao menos uma parcela.");
   const timestamp = now();
   const purchase: CardPurchase = {
     ...input,
-    transactionKind: "purchase",
+    transactionKind: input.transactionKind ?? "purchase",
     id: uid("card-purchase"),
-    ledgerEntryId: ledgerEntry.id,
+    ledgerEntryId,
     firstInvoiceKey: invoiceKeyFor(card, input.date),
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -161,13 +175,28 @@ export function recordCardPurchase(
   return purchase;
 }
 
+export function removeCardPurchase(state: FinanceState, ledgerEntryId: string) {
+  state.cardPurchases = state.cardPurchases.filter((item) => item.ledgerEntryId !== ledgerEntryId);
+}
+
+function purchaseHasPaidInvoice(state: FinanceState, purchase: CardPurchase) {
+  return cardInvoices(state, purchase.cardId).some((invoice) => invoice.paidEntryId && invoice.installments.some((line) => line.purchaseId === purchase.id));
+}
+
+export function assertCardPurchaseStructuralChangeAllowed(state: FinanceState, ledgerEntryId: string) {
+  const purchase = state.cardPurchases.find((item) => item.ledgerEntryId === ledgerEntryId);
+  if (purchase && purchaseHasPaidInvoice(state, purchase)) throw new Error("Compras de faturas pagas não podem alterar cartão, valor, data ou parcelas.");
+}
+
 export function updateCardPurchase(
   state: FinanceState,
   ledgerEntryId: string,
   input: Pick<CardPurchase, "cardId" | "description" | "amount" | "currency" | "date" | "categoryId" | "installments" | "notes">,
 ) {
   const purchase = state.cardPurchases.find((item) => item.ledgerEntryId === ledgerEntryId);
-  if (!purchase) return;
+  if (!purchase) throw new Error("A compra vinculada ao lançamento não foi encontrada.");
+  const structuralChange = purchase.cardId !== input.cardId || purchase.amount !== input.amount || purchase.date !== input.date || purchase.installments !== input.installments;
+  if (structuralChange) assertCardPurchaseStructuralChangeAllowed(state, ledgerEntryId);
   const card = state.creditCards.find((item) => item.id === input.cardId && !item.archivedAt);
   if (!card) throw new Error("Selecione um cartão válido.");
   if (!Number.isInteger(input.installments) || input.installments < 1)
