@@ -11,7 +11,7 @@ import { useAuth } from "@/auth/auth-context";
 import { emptyFinanceState } from "@/domain/defaults";
 import type { FinanceState } from "@/domain/types";
 import type { FinanceRepository } from "./repository";
-import { SupabaseFinanceRepository } from "./supabase/finance-repository";
+import { SupabaseFinanceV2Repository } from "./supabase/finance-v2-repository";
 
 type FinanceContextValue = {
   state: FinanceState;
@@ -23,7 +23,7 @@ type FinanceContextValue = {
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
 
-/** A test repository can be injected; the running app is always backed by Supabase. */
+/** A test repository can be injected; the running app is always backed by the v2 api. */
 export function FinanceProvider({ children, repository }: PropsWithChildren<{ repository?: FinanceRepository }>) {
   if (repository) return <FinanceStateProvider repository={repository}>{children}</FinanceStateProvider>;
   return <AuthenticatedFinanceProvider>{children}</AuthenticatedFinanceProvider>;
@@ -32,7 +32,7 @@ export function FinanceProvider({ children, repository }: PropsWithChildren<{ re
 function AuthenticatedFinanceProvider({ children }: PropsWithChildren) {
   const { user, status } = useAuth();
   const userId = user?.id;
-  const repository = useMemo(() => userId ? new SupabaseFinanceRepository() : undefined, [userId]);
+  const repository = useMemo(() => userId ? new SupabaseFinanceV2Repository() : undefined, [userId]);
   return <FinanceStateProvider repository={repository} enabled={status === "authenticated"}>{children}</FinanceStateProvider>;
 }
 
