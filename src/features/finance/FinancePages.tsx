@@ -290,6 +290,8 @@ export function LaunchesPage() {
   const [dialog, setDialog] = useState(false);
   const [pendingDeletion, setPendingDeletion] = useState<LedgerEntry>();
   const [search, setSearch] = useState("");
+  const [entryPageSize, setEntryPageSize] = useState(25);
+  const [visibleEntryCount, setVisibleEntryCount] = useState(25);
   const movementKinds = new Map(movementsFor(state).map((movement) => [movement.id, movement.kind]));
   const entries = state.entries
     .filter((entry) => !entry.systemGenerated)
@@ -299,6 +301,8 @@ export function LaunchesPage() {
     })
     .filter((entry) => normalizeText(entry.description).includes(normalizeText(search)))
     .sort((a, b) => b.date.localeCompare(a.date));
+  const visibleEntries = entries.slice(0, visibleEntryCount);
+  const hasMoreEntries = visibleEntries.length < entries.length;
   const save = async (input: EntryInput & { installments?: number }, toInstitutionId?: string, investmentId?: string) => {
     await commit((draft) => {
       const existingPurchase = editing ? draft.cardPurchases.find((purchase) => purchase.ledgerEntryId === editing.id) : undefined;
@@ -387,19 +391,23 @@ export function LaunchesPage() {
       />
       {tab === "entries" && (
         <section className="panel">
-          <div className="toolbar">
+          <div className="toolbar launches-toolbar">
             <div className="search">
               <Search />
               <input
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setVisibleEntryCount(entryPageSize);
+                }}
                 placeholder="Buscar descrição"
               />
             </div>
             <span>{entries.length} lançamento(s)</span>
           </div>
           {entries.length ? (
-            <div className="responsive-table">
+            <>
+              <div className="responsive-table">
               <table>
                 <thead>
                   <tr>
@@ -412,7 +420,7 @@ export function LaunchesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map((entry) => (
+                  {visibleEntries.map((entry) => (
                     <tr key={entry.id}>
                       <td data-label="Data">{dateLabel(entry.date)}</td>
                       <td data-label="Descrição">
@@ -454,6 +462,33 @@ export function LaunchesPage() {
                 </tbody>
               </table>
             </div>
+            <div className="launch-pagination">
+              <span>Exibindo {visibleEntries.length} de {entries.length}</span>
+              <div className="launch-pagination-controls">
+                <span className="launch-page-size-label">Mostrar</span>
+                <CustomSelect
+                  className="launch-page-size"
+                  label="Quantidade de lançamentos exibidos"
+                  value={String(entryPageSize)}
+                  onChange={(value) => {
+                    const nextPageSize = Number(value);
+                    setEntryPageSize(nextPageSize);
+                    setVisibleEntryCount(nextPageSize);
+                  }}
+                  items={[["25", "25"], ["50", "50"], ["100", "100"], ["200", "200"]]}
+                />
+                {hasMoreEntries && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setVisibleEntryCount((current) => Math.min(current + entryPageSize, entries.length))}
+                  >
+                    Ver mais
+                  </Button>
+                )}
+              </div>
+            </div>
+            </>
           ) : (
             <Empty title="Nenhum lançamento" description="Use “Novo lançamento” para começar." />
           )}

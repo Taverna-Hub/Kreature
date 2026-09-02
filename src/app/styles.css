@@ -127,6 +127,22 @@ img, svg { max-width: 100%; }
 
 .section-tabs, .tabs { display: flex; overflow-x: auto; gap: .25rem; width: fit-content; max-width: 100%; margin: 0 0 1rem; padding: .3rem; border: 1px solid var(--border); border-radius: .9rem; background: var(--soft); }.section-tabs button, .tabs button { flex: 0 0 auto; min-height: 2.25rem; padding: .45rem .72rem; border: 0; border-radius: .65rem; background: transparent; color: var(--text-muted); font-weight: 500; }.section-tabs button:hover, .tabs button:hover { color: var(--ink); }.section-tabs button.active, .tabs button.active { background: var(--surface-raised); color: var(--brand-dark); box-shadow: 0 2px 5px color-mix(in srgb, #000 10%, transparent); font-weight: 600; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; color: var(--text-muted); font-size: .82rem; }.search { display: flex; min-width: min(100%, 320px); align-items: center; gap: .55rem; padding: .62rem .75rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--field); }.search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); }
+
+.launches-toolbar { flex-wrap: wrap; }
+.launch-pagination { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--text-muted); font-size: .8rem; }
+.launch-pagination-controls { display: flex; align-items: center; gap: .55rem; }
+.launch-page-size-label { color: var(--text-muted); font-size: .8rem; font-weight: 700; white-space: nowrap; }
+.launch-page-size { width: 5.35rem; }
+.launch-page-size .custom-select-trigger { min-height: 2.3rem; padding: .42rem .56rem; border-radius: .62rem; font-size: .86rem; }
+.launch-page-size .custom-select-list { top: auto; bottom: calc(100% + .45rem); min-width: 100%; }
+@media (max-width: 760px) {
+  .launches-toolbar .search { flex: 1 1 100%; }
+  .launches-toolbar > span { margin-right: auto; }
+  .launch-pagination { align-items: stretch; flex-direction: column; }
+  .launch-pagination-controls { justify-content: space-between; }
+  .launch-page-size { width: 6rem; }
+  .launch-pagination .button { width: 100%; }
+}
 .responsive-table { overflow-x: auto; }.responsive-table table { width: 100%; min-width: 720px; border-collapse: collapse; }.responsive-table th, .responsive-table td { padding: .78rem .65rem; border-bottom: 1px solid var(--border); color: var(--ink); text-align: left; }.responsive-table th { color: var(--text-muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; }.responsive-table td strong { display: block; overflow-wrap: anywhere; }.responsive-table td small { color: var(--text-muted); }.row-actions { display: flex; justify-content: end; gap: .35rem; }.positive { color: var(--success) !important; }.negative { color: #e11d48 !important; }.badge { display: inline-flex; padding: .25rem .48rem; border-radius: 999px; background: var(--soft); color: var(--ink); font-size: .67rem; font-weight: 800; }.badge.expense { background: #fff1f2; color: #be123c; }.badge.income { background: #ecfdf5; color: #047857; }.badge.investment { background: #f5f3ff; color: #6d28d9; }.badge.pix { background: #dcfce7; color: #15803d; }
 
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem; }.field { display: grid; min-width: 0; gap: .42rem; color: var(--ink); font-size: .82rem; font-weight: 600; }.field.full, .full { grid-column: 1 / -1; }.field input, .field select, .field textarea, .profile-field input, .profile-field textarea, .import-fields input, .import-fields select { width: 100%; min-width: 0; padding: .68rem .75rem; border: 1px solid var(--border); border-radius: .72rem; outline: 0; background: var(--field); color: var(--ink); font-weight: 500; }.field textarea { min-height: 88px; resize: vertical; }.field input:hover, .field select:hover, .field textarea:hover { background: var(--field-hover); }.check { display: flex; align-items: center; gap: .55rem; color: var(--text-muted); font-size: .82rem; font-weight: 500; }
