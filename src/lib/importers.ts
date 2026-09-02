@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import type { FinanceState, ImportCandidate, InstitutionCatalogId } from "@/domain/types";
 import { uid } from "@/domain/defaults";
 import { classifyTransaction, normalizeClassificationText } from "@/domain/classification";
-import { detectStatementInstitution } from "./statement-import/bank-detector";
+import { detectCounterpartyInstitution, detectStatementInstitution } from "./statement-import/bank-detector";
 import { analyzePdfStatement, parsePdfPages } from "./statement-import/pdf-pipeline";
 import type { StatementProgress } from "./statement-import/types";
 import { validateStatementBalances, type StatementValidation } from "./statement-import/validation";
@@ -121,6 +121,7 @@ function candidate(
   return {
     id: uid("candidate"), date: row.date, description, amount: row.amount, currency: row.currency ?? "BRL", externalId: row.externalId,
     detectedInstitutionId: institutionHint, parser, source: parser, ...result,
+    counterpartyInstitutionHint: /\btransfer/.test(normalize(row.description)) ? detectCounterpartyInstitution(row.description, institutionHint) : undefined,
     suggestedKind: result.kind, suggestedCategoryId: result.categoryId,
     confidence: Math.min(result.confidence, extraction?.confidence ?? 1),
     reason: needsReview ? reviewReasons.join(" ") || result.reason : result.reason,
@@ -136,13 +137,16 @@ function validRows(rows: ParsedRow[], state: FinanceState, parser: string, hint?
     else if (/saldo(?: do dia| inicial| final)?|total de |limite da conta|per[ií]odo/.test(normalize(row.description))) warnings.push(`Linha ${index + 1} ignorada: saldo ou total.`);
     else {
       const parsed = candidate(row, state, parser, hint);
-      if (parsed.kind === "credit_payment") {
+      if (parsed.kind === "credit_payment" || parsed.kind === "transfer") {
+        const kind = parsed.kind === "transfer"
+          ? (new Decimal(row.amount).isNegative() ? "expense" : "income")
+          : "expense";
         candidates.push({
           ...parsed,
-          kind: "expense",
-          suggestedKind: "expense",
-          fingerprint: importFingerprint(hint, row.date, parsed.description, row.amount, "expense"),
-          reason: "Invoice payment from a bank statement; pending reconciliation with the card invoice.",
+          kind,
+          suggestedKind: kind,
+          fingerprint: importFingerprint(hint, row.date, parsed.description, row.amount, kind),
+          reason: parsed.kind === "credit_payment" ? "Invoice payment from a bank statement; pending reconciliation with the card invoice." : "Bank transfer; it becomes internal only when the referenced bank has one active user account.",
         });
       } else candidates.push(parsed);
     }

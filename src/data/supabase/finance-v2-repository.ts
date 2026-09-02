@@ -1037,6 +1037,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       if (!payer || !movement.creditCardId) throw new Error("Escolha a conta que quitou a fatura.");
       const invoiceKey = legs[0]?.invoiceKey;
       await this.gateway.payCardInvoice({
+        eventId: movement.id,
         cardId: movement.creditCardId,
         accountId: payer,
         amount: new Decimal(movement.amount).abs().toString(),

@@ -15,7 +15,7 @@ const optimizedFixture = async (name: string) => {
 describe("CSVs otimizados reais", () => {
   it("lê integralmente a fatura Nubank, preservando compras, estornos e quitações", async () => {
     const result = await analyzeFile(
-      await optimizedFixture("Nubank_2026_FATURAS_CONSOLIDADAS.csv"),
+      await optimizedFixture("Nubank_2026_FATURAS_SANITIZADA.csv"),
       emptyFinanceState(),
     );
 
@@ -44,13 +44,14 @@ describe("CSVs otimizados reais", () => {
     expect(result.warnings).toEqual([]);
     expect(result.candidates.every((candidate) => candidate.externalId && candidate.date && candidate.description && candidate.amount !== "0")).toBe(true);
     expect(result.candidates.some((candidate) => candidate.kind === "pix")).toBe(true);
+    expect(result.candidates.some((candidate) => candidate.kind === "transfer")).toBe(false);
     const pixDescriptions = result.candidates.filter((candidate) => candidate.kind === "pix").map((candidate) => candidate.description);
     expect(pixDescriptions.filter((description) => /\b(?:ag[eê]ncia|conta)\s*[:.]?\s*\d|\b(?:cpf|cnpj)\s*[:.]?\s*\d/i.test(description))).toHaveLength(0);
   });
 
   it("reconcilia somente um débito quando fatura e extrato trazem o mesmo pagamento", async () => {
     const [cardFile, statementFile] = await Promise.all([
-      optimizedFixture("Nubank_2026_FATURAS_CONSOLIDADAS.csv"),
+      optimizedFixture("Nubank_2026_FATURAS_SANITIZADA.csv"),
       optimizedFixture("NU_CONSOLIDADO_EXTRATOS.csv"),
     ]);
     const [cardImport, statementImport] = await Promise.all([

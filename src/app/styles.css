@@ -538,3 +538,24 @@ img, svg { max-width: 100%; }
   .credit-card-network-logo.network-elo { transform: translateY(-.03rem); }
   .credit-card-branding { min-width: 3.1rem; max-width: 4rem; gap: .2rem; }
 }
+
+/* Lançamentos: uma linha visual por movimento no desktop, sem que textos ampliem a altura. */
+@media (min-width: 761px) {
+  .responsive-table table { table-layout: fixed; }
+  .responsive-table th:nth-child(1) { width: 100px; }
+  .responsive-table th:nth-child(3) { width: 148px; }
+  .responsive-table th:nth-child(4) { width: 132px; }
+  .responsive-table th:nth-child(5) { width: 126px; }
+  .responsive-table th:nth-child(6) { width: 90px; }
+  .responsive-table tbody tr, .responsive-table tbody td { height: 68px; }
+  .responsive-table tbody td { overflow: hidden; vertical-align: middle; }
+  .responsive-table tbody td:nth-child(2) { max-width: 0; }
+  .responsive-table tbody td:nth-child(2) strong,
+  .responsive-table tbody td:nth-child(2) small,
+  .responsive-table tbody td:nth-child(4) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .responsive-table tbody td:nth-child(4), .responsive-table tbody .row-actions { white-space: nowrap; }
+}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyFinanceState } from "@/domain/defaults";
+import { suggestInternalTransfer } from "@/domain/internal-transfers";
 import { analyzeFile, cleanTransactionDescription, parseAmount } from "./importers";
 
 describe("StatementImport", () => {
@@ -120,6 +121,26 @@ describe("StatementImport", () => {
 
     expect(account.candidates[0].categoryId).toBe(state.categories.find((category) => category.name === "Lazer")?.id);
     expect(card.candidates[0].categoryId).toBe(state.categories.find((category) => category.name === "Compras")?.id);
+  });
+
+  it("associa a transferencia ao banco de uma conta propria cadastrada", async () => {
+    const state = emptyFinanceState();
+    state.institutions.push(
+      { id: "nubank", name: "Nubank", type: "bank", catalogId: "nubank", currency: "BRL", openingBalance: "0", exchangeRate: "1", createdAt: "", updatedAt: "" },
+      { id: "inter", name: "Inter", type: "bank", catalogId: "inter", currency: "BRL", openingBalance: "0", exchangeRate: "1", createdAt: "", updatedAt: "" },
+    );
+    const result = await analyzeFile(
+      new File([
+        "Data,Valor,Identificador,Descricao\n10/01/2026,-200.00,id-1,Transferencia enviada pelo Pix - Banco Inter",
+      ], "NU_CONSOLIDADO_EXTRATOS.csv", { type: "text/csv" }),
+      state,
+    );
+
+    expect(suggestInternalTransfer(state, { ...result.candidates[0], institutionId: "nubank" })).toMatchObject({
+      kind: "internal_transfer",
+      suggestedKind: "internal_transfer",
+      counterpartyInstitutionId: "inter",
+    });
   });
 });
   it("keeps a bank-statement invoice payment as an expense until reconciliation", async () => {

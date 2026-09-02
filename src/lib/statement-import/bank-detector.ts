@@ -19,6 +19,19 @@ const bankPatterns: Array<[InstitutionCatalogId, RegExp]> = [
   ["wise", /\bwise\b/gi],
 ];
 
+const mentionedInstitutions = (text: string) => bankPatterns
+  .filter(([, pattern]) => {
+    pattern.lastIndex = 0;
+    const matches = pattern.test(text);
+    pattern.lastIndex = 0;
+    return matches;
+  })
+  .map(([id]) => id);
+
+export const detectCounterpartyInstitution = (text: string, source?: InstitutionCatalogId) => {
+  const matches = mentionedInstitutions(text).filter((id) => id !== source);
+  return matches.length === 1 ? matches[0] : undefined;
+};
 /** O emissor assina o topo do documento; no corpo, os nomes citados são contrapartes. */
 const headerLength = 600;
 

@@ -18,6 +18,25 @@ function mentionsAccount(description: string, account: { name: string; identifie
 export function suggestInternalTransfer(state: FinanceState, candidate: ImportCandidate): ImportCandidate {
   if (!candidate.institutionId || !state.institutions.some((item) => item.id === candidate.institutionId)) return candidate;
   const source = state.institutions.find((item) => item.id === candidate.institutionId)!;
+  const directAccounts = candidate.counterpartyInstitutionHint
+    ? state.institutions.filter((item) =>
+      item.id !== source.id
+      && !item.archivedAt
+      && item.catalogId === candidate.counterpartyInstitutionHint
+      && item.currency === candidate.currency,
+    )
+    : [];
+  if (directAccounts.length === 1) {
+    const counterpart = directAccounts[0];
+    return {
+      ...candidate,
+      kind: "internal_transfer",
+      suggestedKind: "internal_transfer",
+      counterpartyInstitutionId: counterpart.id,
+      internalTransferSuggestion: { confidence: 0.98, reason: "Banco da contraparte corresponde a uma conta propria." },
+    };
+  }
+
   const matches = state.entries.filter((entry) => {
     if (!entry.institutionId || entry.institutionId === source.id || entry.pendingReconciliation) return false;
     const account = state.institutions.find((item) => item.id === entry.institutionId);

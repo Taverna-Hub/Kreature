@@ -331,6 +331,7 @@ export interface ImportCandidate {
   /** Identifier supplied by a statement (OFX FITID, CSV operation ID, etc.). */
   externalId?: string;
   detectedInstitutionId?: InstitutionCatalogId;
+  counterpartyInstitutionHint?: InstitutionCatalogId;
   parser: string;
   exchangeRate?: DecimalValue;
   kind: EntryKind;

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Decimal from "decimal.js";
 import { institutionBalance, movementsFor, recordEntry } from "@/domain/ledger";
 import { buildSummary } from "@/domain/queries";
-import { cardInvoices } from "@/domain/cards";
+import { cardInvoices, reconcileImportedInvoicePayment } from "@/domain/cards";
 import { analyzeFile } from "@/lib/importers";
 import { SupabaseFinanceV2Repository, type FinanceV2Api } from "./finance-v2-repository";
 import type { FinanceV2Snapshot } from "./finance-v2-gateway";
@@ -354,6 +354,26 @@ describe("repositório v2", () => {
     const written = calls.find((call) => call.method === "writeCardTransaction");
     expect(written?.payload).toMatchObject({
       cardId: "card-1", kind: "purchase", amount: "600", installments: 6, firstInvoiceMonth: "2026-03-01",
+    });
+  });
+
+  it("reuses the imported statement debit when the card invoice is already paid", async () => {
+    const base = snapshot();
+    const fixture = fakeGateway({ ...base, events: [...base.events, {
+      id: "ev-bank-payment", version: 1, kind: "expense", category_id: null, import_batch_id: "batch-1",
+      occurred_at: "2026-01-28T12:00:00Z", source: "import", sensitive: { description: "Pagamento de fatura" },
+      postings: [{ id: "p-bank-a", ledger_account_id: CHECKING_LEDGER, amount: "-100", currency_code: "BRL", operation_fx_rate_id: null }, { id: "p-bank-b", ledger_account_id: SYSTEM_LEDGER, amount: "100", currency_code: "BRL", operation_fx_rate_id: null }],
+      card: null, investment: null, investment_income: null, ...timestamps,
+    }] });
+    const importRepository = new SupabaseFinanceV2Repository(fixture.gateway);
+    await importRepository.transact((draft) => {
+      reconcileImportedInvoicePayment(draft, { cardId: "card-1", date: "2026-01-28", amount: "-100", description: "Pagamento de fatura", institutionId: "acc-checking" });
+    });
+
+    const payment = fixture.calls.find((call) => call.method === "payCardInvoice");
+    expect(payment?.payload).toMatchObject({
+      eventId: "ev-bank-payment",
+      accountId: "acc-checking",
     });
   });
 
