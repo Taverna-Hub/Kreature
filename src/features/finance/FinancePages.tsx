@@ -1007,10 +1007,15 @@ export function ImportView() {
     setCandidates([]);
     setWarnings([]);
     setValidation(undefined);
+    setCreditCardId("");
     setBusy("Lendo arquivo");
     try {
       const result = await analyzeFile(file, state, { onProgress: (progress) => setBusy(progress.message) });
       setDocument(result.document);
+      if (result.document?.requiresCard && result.institutionHint) {
+        const matchingCards = state.creditCards.filter((card) => card.issuer === result.institutionHint && !card.archivedAt);
+        setCreditCardId(matchingCards.length === 1 ? matchingCards[0].id : "");
+      }
       const currencies = [...new Set(result.candidates.map((item) => item.currency).filter((currency) => currency !== "BRL"))];
       const rates = new Map<string, string>([["BRL", "1"]]);
       const rateWarnings: string[] = [];
@@ -1356,6 +1361,7 @@ export function ImportView() {
         <ImportConfirmation
           state={state}
           selected={selected}
+          creditCardId={creditCardId}
           onBack={() => setStep("review")}
           onConfirm={() => void confirm()}
         />
@@ -1364,9 +1370,10 @@ export function ImportView() {
   );
 }
 
-function ImportConfirmation({ state, selected, onBack, onConfirm }: {
+function ImportConfirmation({ state, selected, creditCardId, onBack, onConfirm }: {
   state: FinanceState;
   selected: ImportCandidate[];
+  creditCardId?: string;
   onBack: () => void;
   onConfirm: () => void;
 }) {
@@ -1391,7 +1398,9 @@ function ImportConfirmation({ state, selected, onBack, onConfirm }: {
   const duplicates = selected.filter((item) => item.duplicate || item.similarDuplicate).length;
   const newInstitutions = new Set(selected.map((item) => item.institutionId).filter((id) => id?.startsWith("create:"))).size;
   const withoutCategory = selected.filter((item) => !item.categoryId).length;
-  const institutionName = (id?: string) => {
+  const institutionName = (item: ImportCandidate) => {
+    if (item.cardTransactionKind && creditCardId) return state.creditCards.find((card) => card.id === creditCardId)?.name ?? "Cartão selecionado";
+    const id = item.institutionId;
     if (!id) return "Sem instituição";
     if (id.startsWith("create:")) return `${catalogInstitution(id.slice("create:".length))?.name ?? "Nova instituição"} (nova)`;
     return state.institutions.find((item) => item.id === id)?.name ?? "Sem instituição";
@@ -1427,7 +1436,7 @@ function ImportConfirmation({ state, selected, onBack, onConfirm }: {
                 <td data-label="Data">{dateLabel(item.date)}</td>
                 <td data-label="Descrição"><strong>{cleanTransactionDescription(item.description)}</strong></td>
                 <td data-label="Tipo"><span className={`badge ${item.kind}`}>{entryKindLabel(item.kind)}</span></td>
-                <td data-label="Instituição">{institutionName(item.institutionId)}</td>
+                <td data-label="Instituição">{institutionName(item)}</td>
                 <td data-label="Valor" className={brlAmount(item).isNegative() ? "negative" : "positive"}>{money(finalAmount(item), item.currency)}</td>
               </tr>
             ))}
@@ -2006,6 +2015,9 @@ function InvestmentDialog({
   onClose: () => void;
   onSave: (value: Investment, createEntry: boolean) => Promise<void>;
 }) {
+  const [investmentType, setInvestmentType] = useState<InvestmentType>(value?.type ?? "cdb");
+  const [institutionId, setInstitutionId] = useState(value?.institutionId ?? "");
+  const isCashReserve = investmentType === "cash_box";
   return (
     <Modal title={value ? "Editar investimento" : "Novo investimento"} onClose={onClose}>
       <form
@@ -2051,14 +2063,16 @@ function InvestmentDialog({
         }}
       >
         <Field label="Classe financeira">
-          <CustomSelect label="Classe financeira" name="type" defaultValue={value?.type ?? "cdb"} items={investmentTypeOptions} />
+          <CustomSelect label="Classe financeira" name="type" value={investmentType} onChange={(next) => setInvestmentType(next as InvestmentType)} items={investmentTypeOptions} />
         </Field>
         <Field label="Instituição">
           <CustomSelect
             label="Instituição"
             name="institutionId"
-            defaultValue={value?.institutionId ?? ""}
-            items={[...emptyOption("Sem instituição"), ...institutionOptions(institutions)]}
+            value={institutionId}
+            onChange={setInstitutionId}
+            required={!isCashReserve}
+            items={[...emptyOption(isCashReserve ? "Dinheiro (sem conta associada)" : "Selecione uma instituição"), ...institutionOptions(institutions)]}
           />
         </Field>
         <Field className="full" label="Nome do ativo">
@@ -2104,12 +2118,13 @@ function InvestmentDialog({
         <Field label="Vencimento">
           <FormDatePicker name="maturityDate" defaultValue={value?.maturityDate} label="Data de vencimento" />
         </Field>
-        {!value && (
+        {!value && institutionId && (
           <label className="check full">
             <input type="checkbox" name="createEntry" defaultChecked />
             Registrar aplicação e reduzir saldo disponível
           </label>
         )}
+        {isCashReserve && !institutionId && <p className="form-hint full">O valor será registrado como dinheiro em reserva, sem reduzir ou vincular o saldo de uma conta.</p>}
         {consolidated && <p className="form-hint full">Esses detalhes serão aplicados a todas as movimentações desta posição importada.</p>}
         <div className="form-actions full">
           <Button type="submit">Salvar investimento</Button>
@@ -2648,7 +2663,7 @@ const plannedOriginLabel = (state: FinanceState, key?: string) => {
 const institutionTypeLabel = (type: InstitutionType) =>
   ({ bank: "Banco", broker: "Corretora", wallet: "Carteira digital", other: "Outra" })[type];
 const investmentTypeOptions: Array<[InvestmentType, string]> = [
-  ["cash_box", "Caixinha / reserva remunerada"],
+  ["cash_box", "Reserva / dinheiro"],
   ["cdb", "CDB"],
   ["cri", "CRI"],
   ["cra", "CRA"],

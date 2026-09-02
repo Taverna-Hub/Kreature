@@ -644,6 +644,18 @@ begin
   perform api.write_investment_asset(jsonb_build_object('operation', 'delete', 'id', throwaway.asset_id, 'expected_version', 1));
   perform pg_temp.expect_eq((select count(*) from app_private.investment_assets where id = throwaway.asset_id), 0, 'an investment asset can be deleted');
 
+  select asset_id, holding_id into throwaway from api.write_investment_asset(jsonb_build_object(
+    'operation', 'create',
+    'asset', jsonb_build_object('asset_type_code', 'cash_box', 'currency_code', 'BRL',
+      'custody_account_id', null,
+      'sensitive_payload_b64', encode('reserva-em-dinheiro', 'base64'),
+      'encryption_nonce_b64', encode(gen_random_bytes(12), 'base64'),
+      'encryption_key_version', 1)));
+  perform pg_temp.expect(
+    (select custody_account_id is null from app_private.investment_holdings where id = throwaway.holding_id),
+    'a cash reserve can exist without a custody account');
+  perform api.write_investment_asset(jsonb_build_object('operation', 'delete', 'id', throwaway.asset_id, 'expected_version', 1));
+
   perform pg_temp.become_owner();
 end;
 $$;

@@ -768,7 +768,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       const payload = {
         assetTypeCode: ASSET_TYPE_BY_INVESTMENT[investment.type] ?? "other",
         currencyCode: investment.currency,
-        custodyAccountId: investment.institutionId ?? "",
+        custodyAccountId: investment.institutionId,
         archivedAt: investment.archivedAt,
         sensitive: {
           name: investment.name,
@@ -781,7 +781,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         },
       };
       if (!prior) {
-        if (!investment.institutionId) throw new Error("Escolha a conta de custódia do investimento.");
+        if (!investment.institutionId && investment.type !== "cash_box") throw new Error("Escolha a conta de custódia do investimento.");
         const written = await this.gateway.writeInvestmentAsset({ operation: "create", asset: payload });
         if (written.holding_id) {
           this.holdings.set(written.asset_id, written.holding_id);

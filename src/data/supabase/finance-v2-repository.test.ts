@@ -188,6 +188,25 @@ describe("repositório v2", () => {
     });
   });
 
+  it("salva uma reserva em dinheiro sem conta de custódia", async () => {
+    await repository.transact((draft) => {
+      draft.investments.push({
+        id: "cash-reserve", type: "cash_box", name: "Reserva em dinheiro",
+        quantity: "1", averagePrice: "1000", investedAmount: "1000", currentPrice: "1000", currentValue: "1000",
+        dividends: "0", currency: "BRL", quoteStatus: "manual",
+        createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z",
+      });
+    });
+
+    expect(calls.find((call) => call.method === "writeInvestmentAsset")?.payload).toMatchObject({
+      operation: "create",
+      asset: { assetTypeCode: "cash_box", custodyAccountId: undefined },
+    });
+    expect(calls.find((call) => call.method === "writeInvestmentOperation")?.payload).toMatchObject({
+      operation: "opening", principalAmount: "1000",
+    });
+  });
+
   it("reagrupa as parcelas de uma compra em uma única compra de cartão", async () => {
     const state = await repository.load();
 

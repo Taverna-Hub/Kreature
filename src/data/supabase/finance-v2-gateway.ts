@@ -175,7 +175,7 @@ export type FinanceV2InvestmentAssetCommand = {
     instrumentId?: string;
     assetTypeCode: string;
     currencyCode: string;
-    custodyAccountId: string;
+    custodyAccountId?: string;
     archivedAt?: string;
     sensitive: FinanceV2InvestmentAssetSensitive;
   };
@@ -424,7 +424,7 @@ export type FinanceV2InvestmentOperationCommand = {
 export type FinanceV2InvestmentPosition = {
   holding_id: string;
   asset_id: string;
-  custody_account_id: string;
+  custody_account_id: string | null;
   ledger_account_id: string;
   asset_type_code: string;
   currency_code: string;

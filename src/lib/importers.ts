@@ -22,7 +22,7 @@ export type ImportAnalysis = {
 
 export type ImportAnalysisOptions = { onProgress?: (progress: StatementProgress) => void };
 
-type ParsedRow = { date: string; description: string; amount: string; externalId?: string; currency?: string };
+type ParsedRow = { date: string; description: string; amount: string; externalId?: string; currency?: string; categoryName?: string };
 
 const normalize = normalizeClassificationText;
 const readText = (file: File) =>
@@ -67,6 +67,10 @@ export const parseDate = (value: unknown) => {
 
 const detectInstitution = detectStatementInstitution;
 const detectCurrency = (text: string) => /\bEUR\b|€/.test(text) ? "EUR" : /\bUSD\b|US\$/.test(text) ? "USD" : /\bGBP\b|£/.test(text) ? "GBP" : "BRL";
+const categoryByName = (state: FinanceState, name: string | undefined, flow: "expense" | "income") => {
+  const expected = normalize(name ?? "");
+  return expected ? state.categories.find((category) => !category.archivedAt && category.flow === flow && normalize(category.name) === expected) : undefined;
+};
 
 /** Removes banking identifiers while retaining the useful counterparty and movement direction. */
 export function cleanTransactionDescription(value: string) {
@@ -99,7 +103,9 @@ function candidate(
   extraction?: Pick<ImportCandidate, "page" | "extractionSource" | "rawText" | "needsReview" | "reviewReasons"> & { confidence?: number },
 ): ImportCandidate {
   const description = cleanTransactionDescription(row.description);
-  const result = classifyTransaction(description, row.amount, state.categories, state.classificationRules);
+  let result = classifyTransaction(description, row.amount, state.categories, state.classificationRules);
+  const providedCategory = categoryByName(state, row.categoryName, new Decimal(row.amount).isNegative() ? "expense" : "income");
+  if (providedCategory) result = { ...result, categoryId: providedCategory.id, confidence: .99, reason: `Categoria fornecida pelo arquivo: ${providedCategory.name}` };
   const key = importFingerprint(institutionHint, row.date, description, row.amount, result.kind);
   const duplicateResult = detectImportDuplicate(state, {
     date: row.date,
@@ -133,25 +139,34 @@ function validRows(rows: ParsedRow[], state: FinanceState, parser: string, hint?
   return { source: parser, institutionHint: hint, currency: candidates[0]?.currency ?? "BRL", candidates, warnings };
 }
 
-function parseCsv(text: string, state: FinanceState): ImportAnalysis {
+function parseCsv(text: string, state: FinanceState, fileName?: string): ImportAnalysis {
   const parsed = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true });
   const headers = Object.keys(parsed.data[0] ?? {}).map(normalize);
   const cardRows = parsed.data.map((raw) => {
     const row = Object.fromEntries(Object.entries(raw).map(([key, value]) => [normalize(key), value]));
-    return { date: parseDate(row.data ?? row.date ?? row["data da transacao"]), description: String(row.descricao ?? row.description ?? row.title ?? row.historico ?? row.lancamento ?? "").trim(), amount: parseAmount(row.valor ?? row.value ?? row.amount), currency: detectCurrency(String(row.moeda ?? row.currency ?? "")) };
+    return { date: parseDate(row.data ?? row.date ?? row["data da transacao"]), description: String(row.descricao ?? row.description ?? row.title ?? row.historico ?? row.lancamento ?? "").trim(), amount: parseAmount(row.valor ?? row.value ?? row.amount), currency: detectCurrency(String(row.moeda ?? row.currency ?? "")), categoryName: String(row.categoria ?? row.category ?? "") || undefined };
   });
   if (isLikelyCardCsv(headers, cardRows)) {
     const candidates = cardRows.filter((row) => row.date && row.description && !new Decimal(row.amount).isZero()).map((row) => {
       const card = classifyCardCsvRow(row);
-      const result = candidate({ ...row, amount: new Decimal(row.amount).abs().toString() }, state, "cartao-csv");
-      return { ...result, ...card, kind: card.kind, suggestedKind: card.kind, include: !result.duplicate, needsReview: false, reason: "CSV de cartão provável; selecione o cartão antes de confirmar." };
+      const amount = new Decimal(row.amount).abs();
+      const result = candidate({ ...row, amount: amount.toString() }, state, "cartao-csv");
+      const category = classifyTransaction(
+        row.description,
+        card.kind === "card_refund" ? amount.toString() : amount.negated().toString(),
+        state.categories,
+        state.classificationRules,
+      );
+      const providedCategory = card.kind === "credit_payment" ? undefined : categoryByName(state, row.categoryName, card.kind === "card_refund" ? "income" : "expense");
+      const categoryId = providedCategory?.id ?? category.categoryId;
+      return { ...result, ...card, kind: card.kind, categoryId, suggestedKind: card.kind, suggestedCategoryId: categoryId, include: !result.duplicate, needsReview: false, reason: providedCategory ? `Categoria fornecida pelo arquivo: ${providedCategory.name}` : "CSV de cartão provável; selecione o cartão antes de confirmar." };
     });
-    return { source: "cartao-csv", currency: "BRL", candidates, warnings: ["O arquivo não contém emissor, cartão, período ou vencimento. Selecione o cartão manualmente."], document: { kind: "card_statement", contentHash: contentHash(text), source: "nubank-card-csv", requiresCard: true } };
+    return { source: "cartao-csv", institutionHint: "nubank", currency: "BRL", candidates, warnings: ["O arquivo não contém cartão, período ou vencimento. Confirme o cartão antes de importar."], document: { kind: "card_statement", contentHash: contentHash(text), source: "nubank-card-csv", requiresCard: true } };
   }
-  const hint = detectInstitution(text.slice(0, 1600));
+  const hint = detectInstitution(`${fileName ?? ""}\n${text.slice(0, 1600)}`);
   const rows = parsed.data.map((raw) => {
     const row = Object.fromEntries(Object.entries(raw).map(([key, value]) => [normalize(key), value]));
-    return { date: parseDate(row.data ?? row.date ?? row["data da transacao"]), description: String(row.descricao ?? row.description ?? row.historico ?? row.lancamento ?? "").trim(), amount: parseAmount(row.valor ?? row.value ?? row.amount), externalId: String(row.identificador ?? row.id ?? row["id da operacao"] ?? "") || undefined, currency: detectCurrency(String(row.moeda ?? row.currency ?? "")) };
+    return { date: parseDate(row.data ?? row.date ?? row["data da transacao"]), description: String(row.descricao ?? row.description ?? row.historico ?? row.lancamento ?? "").trim(), amount: parseAmount(row.valor ?? row.value ?? row.amount), externalId: String(row.identificador ?? row.id ?? row["id da operacao"] ?? "") || undefined, currency: detectCurrency(String(row.moeda ?? row.currency ?? "")), categoryName: String(row.categoria ?? row.category ?? "") || undefined };
   });
   const result = validRows(rows, state, hint ? `${hint}-csv` : "csv-genérico", hint);
   return { ...result, warnings: [...result.warnings, ...parsed.errors.map((error) => error.message)] };
@@ -242,7 +257,7 @@ export async function analyzeFile(file: File, state: FinanceState, options?: Imp
   if (file.size > 25 * 1024 * 1024) throw new Error("O arquivo é maior que 25 MB. Escolha um arquivo menor.");
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".ofx") || lower.endsWith(".qfx")) return parseOfx(await readText(file), state);
-  if (lower.endsWith(".csv")) return parseCsv(await readText(file), state);
+  if (lower.endsWith(".csv")) return parseCsv(await readText(file), state, file.name);
   if (lower.endsWith(".xls") || lower.endsWith(".xlsx")) { const XLSX = await import("xlsx"); const workbook = XLSX.read(await readBuffer(file), { type: "array" }); const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]); return parseCsv(csv, state); }
   if (lower.endsWith(".pdf")) return parsePdfHybrid(file, state, options);
   if (/\.(png|jpe?g|webp)$/i.test(lower)) return parseStatementImage(file, state, options);

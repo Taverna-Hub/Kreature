@@ -12,3 +12,4 @@ extratos
 *CONTEXT.md
 docs
 .env*
+consolidate-nubank-csvs.mjs

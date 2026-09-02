@@ -20,4 +20,5 @@ describe("suggestInternalTransfer", () => {
     const result = suggestInternalTransfer(state, { id: "out", date: "2026-08-10", description: "Pix enviado Inter C6", amount: "-500", currency: "BRL", parser: "ofx", kind: "pix", suggestedKind: "pix", confidence: 1, reason: "", source: "ofx", include: true, createInvestment: false, fingerprint: "x", duplicate: false, institutionId: "Nubank" });
     expect(result.internalTransferSuggestion).toBeUndefined();
   });
+
 });

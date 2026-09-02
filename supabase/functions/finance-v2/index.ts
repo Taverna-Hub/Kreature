@@ -353,7 +353,7 @@ async function writeInvestmentAsset(client: SupabaseClient, userId: string, body
       instrument_id: asNullableId(asset.instrumentId),
       asset_type_code: asset.assetTypeCode,
       currency_code: asset.currencyCode,
-      custody_account_id: asset.custodyAccountId,
+      custody_account_id: asNullableId(asset.custodyAccountId),
       archived_at: asset.archivedAt ?? null,
       ...(await seal(userId, PURPOSE.investment, id, asset.sensitive ?? {})),
     };

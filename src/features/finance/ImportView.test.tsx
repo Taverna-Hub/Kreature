@@ -116,4 +116,37 @@ describe("revisão da importação", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revisar e importar" }));
     expect(await screen.findByRole("button", { name: "Confirmar importação" })).toBeInTheDocument();
   });
+
+  it("associa o CSV de fatura ao único cartão Nubank e salva sem tratá-lo como transferência", async () => {
+    const state = emptyFinanceState();
+    state.creditCards.push({
+      id: "nubank-card", name: "Cartão Nubank", issuer: "nubank", cardType: "credit", network: "mastercard",
+      limit: "5000", closingDay: 20, dueDay: 28, currency: "BRL", createdAt: "2026-01-01", updatedAt: "2026-01-01",
+    });
+    financeMock.useFinance.mockReturnValue({
+      state,
+      commit: vi.fn(async (change: (draft: typeof state) => void) => change(state)),
+    });
+    importerMock.analyzeFile.mockResolvedValue({
+      source: "cartao-csv", institutionHint: "nubank", currency: "BRL", warnings: [],
+      document: { kind: "card_statement", contentHash: "sha256:nubank", source: "nubank-card-csv", requiresCard: true },
+      candidates: [{
+        id: "card-item", date: "2026-01-29", description: "Compra", amount: "200", currency: "BRL",
+        parser: "cartao-csv", kind: "card_purchase", suggestedKind: "card_purchase", cardTransactionKind: "purchase",
+        confidence: .9, reason: "CSV de cartão", source: "cartao-csv", include: true, createInvestment: false,
+        fingerprint: "card-item", duplicate: false,
+      }],
+    });
+
+    await analyze();
+    expect(screen.getByRole("button", { name: "Cartão da fatura" })).toHaveTextContent("Cartão Nubank");
+    fireEvent.click(screen.getByRole("button", { name: "Revisar e importar" }));
+    expect(await screen.findByRole("table")).toHaveTextContent("Cartão Nubank");
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar importação" }));
+
+    await waitFor(() => expect(state.entries).toHaveLength(1));
+    expect(state.entries[0]).toMatchObject({ kind: "card_purchase", creditCardId: "nubank-card" });
+    expect(screen.queryByText("Selecione contas diferentes.")).toBeNull();
+  });
+
 });

@@ -22,12 +22,21 @@ const bankPatterns: Array<[InstitutionCatalogId, RegExp]> = [
 /** O emissor assina o topo do documento; no corpo, os nomes citados são contrapartes. */
 const headerLength = 600;
 
+/** Nubank exports account CSVs as NU_<account>_<period>.csv. */
+const institutionFromFileName = (text: string): InstitutionCatalogId | undefined => {
+  const fileName = text.split(/\r?\n/, 1)[0].trim();
+  return /^NU_[^/\\]+\.csv$/i.test(fileName) ? "nubank" : undefined;
+};
+
 /**
  * Antes a primeira regra que casasse vencia, então um extrato da XP com uma única
  * transferência do Santander virava Santander. Agora vale quem assina o cabeçalho e,
  * na falta disso, quem é mais citado no documento inteiro.
  */
 export function detectStatementInstitution(text: string): InstitutionCatalogId | undefined {
+  const fileInstitution = institutionFromFileName(text);
+  if (fileInstitution) return fileInstitution;
+
   const header = text.slice(0, headerLength);
   const signature = bankPatterns
     .map(([id, pattern]) => [id, header.search(pattern)] as const)
