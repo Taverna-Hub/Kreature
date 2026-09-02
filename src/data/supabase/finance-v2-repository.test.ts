@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Decimal from "decimal.js";
-import { institutionBalance, movementsFor } from "@/domain/ledger";
+import { institutionBalance, movementsFor, recordEntry } from "@/domain/ledger";
 import { buildSummary } from "@/domain/queries";
 import { cardInvoices } from "@/domain/cards";
+import { analyzeFile } from "@/lib/importers";
 import { SupabaseFinanceV2Repository, type FinanceV2Api } from "./finance-v2-repository";
 import type { FinanceV2Snapshot } from "./finance-v2-gateway";
 
@@ -144,6 +147,12 @@ function fakeGateway(current = snapshot()) {
     writeFxRate: record("writeFxRate", "fx") as FinanceV2Api["writeFxRate"],
   };
   return { gateway, calls };
+}
+
+async function optimizedFixture(name: string) {
+  const path = resolve(process.cwd(), "extratos", "Faturas", "otimizados", name);
+  const text = await readFile(path, "utf8");
+  return new File([text], name, { type: "text/csv" });
 }
 
 describe("repositório v2", () => {
@@ -362,5 +371,30 @@ describe("repositório v2", () => {
     expect(written?.payload).toMatchObject({ operation: "create", batch: { kind: "card_invoice", fingerprint: "sha256:def" } });
     expect(payload).not.toContain("rawText");
     expect(payload).not.toContain("base64");
+  });
+
+  it("preserva o ID do lote ao persistir um Pix do extrato otimizado", async () => {
+    await repository.transact(async (draft) => {
+      const analysis = await analyzeFile(await optimizedFixture("NU_CONSOLIDADO_EXTRATOS.csv"), draft);
+      const pix = analysis.candidates.find((candidate) => candidate.kind === "pix" && new Decimal(candidate.amount).isPositive());
+      expect(pix).toBeDefined();
+      draft.importedDocuments.push({
+        id: "batch-optimized", kind: "account_statement", contentHash: "fixture-optimized", source: "NU_CONSOLIDADO_EXTRATOS.csv",
+        createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z",
+      });
+      recordEntry(draft, {
+        date: pix!.date, description: pix!.description, amount: pix!.amount, currency: pix!.currency,
+        kind: pix!.kind, categoryId: pix!.categoryId, institutionId: "acc-checking", importedDocumentId: "batch-optimized",
+        source: "import", fingerprint: pix!.fingerprint,
+      });
+    });
+
+    const batch = calls.find((call) => call.method === "writeImportBatch");
+    const event = calls.find((call) => call.method === "writeCashEvent");
+    expect(batch?.payload).toMatchObject({ operation: "create", id: "batch-optimized" });
+    expect(event?.payload).toMatchObject({
+      operation: "create",
+      event: { kind: "income", accountId: "acc-checking", importBatchId: "batch-optimized" },
+    });
   });
 });

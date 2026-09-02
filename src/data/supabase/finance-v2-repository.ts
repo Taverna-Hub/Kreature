@@ -764,6 +764,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       // file, the PDF and the extracted text stay in the browser.
       await this.gateway.writeImportBatch({
         operation: "create",
+        id: document.id,
         batch: {
           kind: document.kind,
           fingerprint: document.contentHash,
