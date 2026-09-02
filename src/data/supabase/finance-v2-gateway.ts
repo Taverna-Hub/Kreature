@@ -626,6 +626,7 @@ export class SupabaseFinanceV2Gateway {
     accountId: string;
     amount: DecimalText;
     occurredAt: string;
+    invoiceMonth?: string;
     eventId?: string;
     event?: { source?: FinanceV2Source; sensitive: FinanceV2EventSensitive };
   }) {

@@ -580,6 +580,7 @@ async function payCardInvoice(client: SupabaseClient, userId: string, body: Json
       account_id: command.accountId,
       amount: asText(command.amount),
       occurred_at: command.occurredAt,
+      invoice_month: command.invoiceMonth ?? null,
       event: { source: event.source ?? "manual", ...(await seal(userId, PURPOSE.event, id, event.sensitive ?? {})) },
     },
   });

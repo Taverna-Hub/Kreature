@@ -6,10 +6,16 @@ import { cardInvoices } from "@/domain/cards";
 import { SupabaseFinanceV2Repository, type FinanceV2Api } from "./finance-v2-repository";
 import type { FinanceV2Snapshot } from "./finance-v2-gateway";
 
+const storageMock = vi.hoisted(() => ({
+  download: vi.fn(async () => ({ data: null })),
+  upload: vi.fn(async () => ({ error: null })),
+  remove: vi.fn(async () => ({ data: null, error: null })),
+}));
+
 vi.mock("./client", () => ({
   getSupabase: () => ({
     auth: { getSession: async () => ({ data: { session: { user: { id: "user-1" } } } }) },
-    storage: { from: () => ({ download: async () => ({ data: null }), upload: async () => ({ error: null }), remove: async () => ({}) }) },
+    storage: { from: () => storageMock },
   }),
 }));
 
@@ -145,6 +151,9 @@ describe("repositório v2", () => {
   let calls: Array<{ method: string; payload: unknown }>;
 
   beforeEach(() => {
+    storageMock.download.mockClear();
+    storageMock.upload.mockClear();
+    storageMock.remove.mockClear();
     const fake = fakeGateway();
     repository = new SupabaseFinanceV2Repository(fake.gateway);
     calls = fake.calls;
@@ -204,6 +213,23 @@ describe("repositório v2", () => {
     });
     expect(calls.find((call) => call.method === "writeInvestmentOperation")?.payload).toMatchObject({
       operation: "opening", principalAmount: "1000",
+    });
+  });
+
+  it("envia a imagem da categoria para o bucket privado antes de salvar seu vínculo", async () => {
+    await repository.transact((draft) => {
+      draft.categories[0] = { ...draft.categories[0], image: new Blob(["image"], { type: "image/png" }), imagePath: undefined };
+    });
+
+    expect(storageMock.upload).toHaveBeenCalledWith(
+      expect.stringMatching(/^user-1\/cat-food\//),
+      expect.any(Blob),
+      expect.objectContaining({ contentType: "image/png" }),
+    );
+    expect(calls.find((call) => call.method === "writeCategory")?.payload).toMatchObject({
+      operation: "update",
+      id: "cat-food",
+      category: { image_path: expect.stringMatching(/^user-1\/cat-food\//) },
     });
   });
 

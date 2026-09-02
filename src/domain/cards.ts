@@ -1,7 +1,7 @@
 import Decimal from "decimal.js";
-import { addMonths, format, parseISO } from "date-fns";
+import { addMonths, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { now, uid } from "./defaults";
-import { recordEntry } from "./ledger";
+import { recordEntry, updateEntry } from "./ledger";
 import type { CardPurchase, CreditCard, FinanceState, LedgerEntry } from "./types";
 
 type CardPurchaseInput = Omit<CardPurchase, "id" | "createdAt" | "updatedAt" | "ledgerEntryId" | "firstInvoiceKey">;
@@ -30,6 +30,42 @@ export interface CardInvoice {
   status: "open" | "overdue" | "paid";
   paidAt?: string;
   paymentEntryId?: string;
+}
+
+type ImportedPaymentInput = {
+  cardId: string;
+  date: string;
+  amount: string;
+  description: string;
+  institutionId?: string;
+  importedDocumentId?: string;
+  fingerprint?: string;
+  brlRate?: string;
+  notes?: string;
+};
+
+type ImportedStatementInput = Pick<LedgerEntry, "institutionId" | "date" | "amount" | "currency" | "description">;
+
+const looksLikeCardPayment = (description: string) => /\b(?:fatura|cart(?:a|ã)o|card|credit)\b/i.test(description);
+
+function sameImportedPayment(
+  entry: LedgerEntry,
+  input: Pick<ImportedStatementInput, "institutionId" | "date" | "amount" | "currency">,
+) {
+  return entry.institutionId === input.institutionId
+    && entry.currency === input.currency
+    && new Decimal(entry.amount).abs().eq(new Decimal(input.amount).abs())
+    && Math.abs(differenceInCalendarDays(parseISO(entry.date), parseISO(input.date))) <= 3;
+}
+
+function importedInvoiceKey(state: FinanceState, card: CreditCard, date: string, amount: string) {
+  const candidates = cardInvoices(state, card.id)
+    .filter((invoice) => !invoice.paidEntryId && new Decimal(invoice.total).abs().eq(new Decimal(amount).abs()))
+    .sort((first, second) =>
+      Math.abs(differenceInCalendarDays(parseISO(first.dueDate), parseISO(date)))
+      - Math.abs(differenceInCalendarDays(parseISO(second.dueDate), parseISO(date))),
+    );
+  return candidates[0]?.key ?? invoiceKeyFor(card, date);
 }
 
 function cycleStart(date: Date, closingDay: number) {
@@ -217,12 +253,14 @@ export function updateCardPurchase(
 
 export function payCardInvoice(
   state: FinanceState,
-  input: { cardId: string; invoiceKey: string; institutionId: string; date: string; notes?: string },
+  input: { cardId: string; invoiceKey: string; institutionId?: string; date: string; notes?: string },
 ): LedgerEntry {
   const invoice = cardInvoices(state, input.cardId).find((item) => item.key === input.invoiceKey);
   if (!invoice) throw new Error("Fatura não encontrada.");
   if (invoice.paidEntryId) return state.entries.find((entry) => entry.id === invoice.paidEntryId)!;
   const card = state.creditCards.find((item) => item.id === input.cardId)!;
+  const institutionId = input.institutionId ?? card.payerInstitutionId;
+  if (!institutionId) throw new Error("Defina a conta pagadora deste cartão antes de quitar a fatura.");
   if (new Decimal(invoice.total).lte(0)) throw new Error("Esta fatura não possui saldo para quitação.");
   return recordEntry(state, {
     date: input.date,
@@ -230,7 +268,7 @@ export function payCardInvoice(
     amount: invoice.total,
     currency: card.currency,
     kind: "credit_payment",
-    institutionId: input.institutionId,
+    institutionId,
     creditCardId: card.id,
     invoiceKey: invoice.key,
     ignoredFromAnalytics: true,
@@ -238,4 +276,75 @@ export function payCardInvoice(
     systemGenerated: true,
     notes: input.notes,
   });
+}
+
+/**
+ * Turns a matching imported bank debit into the technical invoice settlement.
+ * The debit remains exactly once; only its economic meaning changes.
+ */
+export function reconcileImportedInvoicePayment(state: FinanceState, input: ImportedPaymentInput): LedgerEntry {
+  const card = state.creditCards.find((item) => item.id === input.cardId && !item.archivedAt);
+  if (!card) throw new Error("Selecione um cartão de crédito ativo.");
+  const institutionId = input.institutionId ?? card.payerInstitutionId;
+  if (!institutionId) throw new Error("Defina a conta pagadora deste cartão antes de importar a fatura.");
+  const invoiceKey = importedInvoiceKey(state, card, input.date, input.amount);
+  const existing = state.entries.find((entry) =>
+    entry.kind === "credit_payment" && entry.creditCardId === card.id && entry.invoiceKey === invoiceKey,
+  );
+  if (existing) return existing;
+
+  const statementDebit = state.entries.find((entry) =>
+    entry.source === "import"
+      && entry.kind !== "credit_payment"
+      && new Decimal(entry.amount).isNegative()
+      && looksLikeCardPayment(entry.description)
+      && sameImportedPayment(entry, { institutionId, date: input.date, amount: input.amount, currency: card.currency }),
+  );
+  if (statementDebit) {
+    return updateEntry(state, statementDebit.id, {
+      date: statementDebit.date,
+      description: statementDebit.description,
+      amount: statementDebit.amount,
+      currency: statementDebit.currency,
+      brlRate: new Decimal(statementDebit.brlAmount).abs().div(new Decimal(statementDebit.amount).abs()).toString(),
+      kind: "credit_payment",
+      institutionId,
+      creditCardId: card.id,
+      invoiceKey,
+      importedDocumentId: statementDebit.importedDocumentId,
+      source: "import",
+      fingerprint: statementDebit.fingerprint,
+      notes: statementDebit.notes,
+      ignoredFromAnalytics: true,
+      systemGenerated: true,
+    });
+  }
+
+  return recordEntry(state, {
+    date: input.date,
+    description: input.description,
+    amount: input.amount,
+    currency: card.currency,
+    brlRate: input.brlRate,
+    kind: "credit_payment",
+    institutionId,
+    creditCardId: card.id,
+    invoiceKey,
+    importedDocumentId: input.importedDocumentId,
+    source: "import",
+    fingerprint: input.fingerprint,
+    notes: input.notes,
+    ignoredFromAnalytics: true,
+    systemGenerated: true,
+  });
+}
+
+/** A later statement row is skipped when the same invoice settlement already exists. */
+export function findImportedStatementInvoicePayment(state: FinanceState, input: ImportedStatementInput) {
+  if (!input.institutionId || !looksLikeCardPayment(input.description)) return undefined;
+  return state.entries.find((entry) =>
+    entry.kind === "credit_payment"
+      && entry.creditCardId
+      && sameImportedPayment(entry, input),
+  );
 }

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { emptyFinanceState } from "@/domain/defaults";
-import { analyzeFile, parseAmount } from "./importers";
+import { analyzeFile, cleanTransactionDescription, parseAmount } from "./importers";
 
 describe("StatementImport", () => {
+  it("remove identificadores de uma transferência Pix em UTF-8", () => {
+    expect(cleanTransactionDescription("Transferência enviada pelo Pix - Pessoa - Agência: 0001 Conta: 12345")).toBe("Pix enviado · Pessoa");
+  });
+
   it.each([
     ["R$ 1.234,56", "1234.56"],
     ["- 1.234,56", "-1234.56"],

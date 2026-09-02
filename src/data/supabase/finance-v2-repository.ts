@@ -277,7 +277,12 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         };
       }),
       investments: snapshot.investment_assets.map((asset) =>
-        this.projectInvestment(asset, asset.holding_id ? positionByHolding.get(asset.holding_id) : undefined)
+        this.projectInvestment(
+          asset,
+          asset.holding_id ? positionByHolding.get(asset.holding_id) : undefined,
+          rateFor(asset.currency_code),
+          rateByCurrency.get(asset.currency_code)?.observed_at,
+        )
       ),
       entries,
       financialMovements: movements,
@@ -327,7 +332,12 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
   }
 
   /** Every number here is replayed from the operations; none of it is stored. */
-  private projectInvestment(asset: FinanceV2InvestmentAsset, position?: FinanceV2InvestmentPosition): Investment {
+  private projectInvestment(
+    asset: FinanceV2InvestmentAsset,
+    position?: FinanceV2InvestmentPosition,
+    exchangeRate = "1",
+    exchangeRateAsOf?: string,
+  ): Investment {
     const quantity = decimal(position?.quantity);
     const costBasis = decimal(position?.cost_basis);
     const average = position?.average_price ? decimal(position.average_price) : "0";
@@ -347,6 +357,8 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       currentValue: decimal(position?.market_value),
       dividends: decimal(position?.income_gross),
       currency: asset.currency_code,
+      exchangeRate,
+      exchangeRateAsOf,
       contractedYield: optional(asset.sensitive.contractedYield),
       maturityDate: optional(asset.sensitive.maturityDate),
       quoteStatus: "manual",
@@ -581,7 +593,9 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     const before = new Map(previous.categories.map((item) => [item.id, item]));
     for (const category of next.categories) {
       const prior = before.get(category.id);
-      if (prior && same({ ...prior, image: undefined }, { ...category, image: undefined })) continue;
+      const metadataChanged = !prior || !same({ ...prior, image: undefined, imagePath: undefined }, { ...category, image: undefined, imagePath: undefined });
+      const imageChanged = Boolean(prior && (prior.imagePath !== category.imagePath || (category.image && !category.imagePath)));
+      if (prior && !metadataChanged && !imageChanged) continue;
       const imagePath = await this.categoryImagePath(category, prior);
       await this.gateway.writeCategory({
         operation: prior ? "update" : "create",
@@ -596,6 +610,9 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
           archived_at: category.archivedAt ?? null,
         },
       });
+      if (prior?.imagePath && prior.imagePath !== imagePath) {
+        await getSupabase().storage.from("category-images").remove([prior.imagePath]);
+      }
     }
     const kept = new Set(next.categories.map((item) => item.id));
     for (const category of previous.categories) {
@@ -615,9 +632,6 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         .upload(imagePath, category.image, { upsert: false, contentType: category.image.type || undefined });
       if (error) throw new Error("Não foi possível enviar a imagem da categoria.");
     }
-    if (prior?.imagePath && !category.image && !imagePath) {
-      await getSupabase().storage.from("category-images").remove([prior.imagePath]);
-    }
     return imagePath;
   }
 
@@ -635,6 +649,19 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         baseCurrencyCode: institution.currency,
         quoteCurrencyCode: this.reportingCurrency,
         rate: institution.exchangeRate,
+      });
+    }
+    const previousReserves = new Map(previous.investments.map((item) => [item.id, item]));
+    for (const reserve of next.investments) {
+      if (reserve.type !== "cash_box" || reserve.currency === this.reportingCurrency || written.has(reserve.currency)) continue;
+      const prior = previousReserves.get(reserve.id);
+      if (prior && new Decimal(prior.exchangeRate ?? 0).eq(reserve.exchangeRate ?? 0)) continue;
+      if (!reserve.exchangeRate || new Decimal(reserve.exchangeRate).lte(0)) continue;
+      written.add(reserve.currency);
+      await this.gateway.writeFxRate({
+        baseCurrencyCode: reserve.currency,
+        quoteCurrencyCode: this.reportingCurrency,
+        rate: reserve.exchangeRate,
       });
     }
   }
@@ -1002,14 +1029,20 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     }
 
     if (movement.kind === "credit_payment") {
-      const payer = legs.find((entry) => entry.institutionId)?.institutionId;
+      const card = state.creditCards.find((item) => item.id === movement.creditCardId);
+      const payer = legs.find((entry) => entry.institutionId)?.institutionId ?? card?.payerInstitutionId;
       if (!payer || !movement.creditCardId) throw new Error("Escolha a conta que quitou a fatura.");
+      const invoiceKey = legs[0]?.invoiceKey;
       await this.gateway.payCardInvoice({
         cardId: movement.creditCardId,
         accountId: payer,
         amount: new Decimal(movement.amount).abs().toString(),
         occurredAt: `${movement.date}T12:00:00.000Z`,
-        event: { sensitive: { ...sensitive, invoiceKey: legs[0]?.invoiceKey } as Record<string, string | undefined> },
+        invoiceMonth: invoiceKey ? `${invoiceKey.slice(invoiceKey.lastIndexOf(":") + 1)}-01` : undefined,
+        event: {
+          source: movement.source === "reconciliation" ? "manual" : movement.source,
+          sensitive: { ...sensitive, invoiceKey } as Record<string, string | undefined>,
+        },
       });
       return;
     }

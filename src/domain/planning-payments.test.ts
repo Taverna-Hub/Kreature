@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cardInvoices, payCardInvoice, recordCardPurchase } from "./cards";
+import {
+  cardInvoices,
+  findImportedStatementInvoicePayment,
+  payCardInvoice,
+  reconcileImportedInvoicePayment,
+  recordCardPurchase,
+} from "./cards";
 import { emptyFinanceState } from "./defaults";
-import { institutionBalance } from "./ledger";
+import { institutionBalance, recordEntry } from "./ledger";
 import { buildSummary } from "./queries";
 import { editRecurrence, settleOccurrence } from "./recurrence";
 
@@ -66,6 +72,72 @@ describe("planned payment methods", () => {
     expect(buildSummary(state, { mode: "all" }).expenses).toBe("120");
     expect(cardInvoices(state, "card")[0].status).toBe("paid");
     expect(state.entries.filter((entry) => entry.systemGenerated)).toHaveLength(1);
+  });
+
+  it("reuses the configured payer and reconciles an already imported bank debit", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(account("bank"));
+    state.creditCards.push(card("card", "bank"));
+    const statementDebit = recordEntry(state, {
+      date: "2026-09-01",
+      description: "Pagamento cart\u00e3o Datanobank",
+      amount: "2000",
+      currency: "BRL",
+      kind: "expense",
+      institutionId: "bank",
+      source: "import",
+    });
+
+    const payment = reconcileImportedInvoicePayment(state, {
+      cardId: "card",
+      date: "2026-09-01",
+      amount: "2000",
+      description: "Fatura paga",
+    });
+
+    expect(payment.id).toBe(statementDebit.id);
+    expect(payment).toMatchObject({ kind: "credit_payment", institutionId: "bank", creditCardId: "card" });
+    expect(state.entries).toHaveLength(1);
+    expect(institutionBalance(state, "bank")).toBe("-1000");
+    expect(buildSummary(state, { mode: "all" }).expenses).toBe("0");
+  });
+
+  it("does not add a bank-statement debit when that invoice was imported first", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(account("bank"));
+    state.creditCards.push(card("card", "bank"));
+    reconcileImportedInvoicePayment(state, {
+      cardId: "card",
+      date: "2026-09-01",
+      amount: "2000",
+      description: "Fatura paga",
+    });
+
+    const matched = findImportedStatementInvoicePayment(state, {
+      institutionId: "bank",
+      date: "2026-09-02",
+      amount: "-2000",
+      currency: "BRL",
+      description: "Pagamento cart\u00e3o Datanobank",
+    });
+
+    expect(matched).toMatchObject({ kind: "credit_payment", creditCardId: "card" });
+    expect(state.entries).toHaveLength(1);
+  });
+
+  it("associates an imported payment with the matching open invoice, even after its closing day", () => {
+    const state = emptyFinanceState();
+    state.institutions.push(account("bank"));
+    state.creditCards.push(card("card", "bank"));
+    recordCardPurchase(state, {
+      cardId: "card", description: "Compra", amount: "2000", currency: "BRL", date: "2026-08-05", installments: 1,
+    });
+
+    const payment = reconcileImportedInvoicePayment(state, {
+      cardId: "card", date: "2026-08-30", amount: "2000", description: "Fatura paga",
+    });
+
+    expect(payment.invoiceKey).toBe("card:2026-08");
   });
 
   it("opens the next invoice after the current invoice is paid", () => {

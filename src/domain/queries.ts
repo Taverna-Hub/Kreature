@@ -50,7 +50,7 @@ export function buildSummary(state: FinanceState, filter: PeriodFilter): Summary
   );
   const invested = state.investments.filter((item) => !item.archivedAt).reduce((sum, item) => {
     const institution = state.institutions.find((candidate) => candidate.id === item.institutionId);
-    const rate = item.currency === "BRL" ? new Decimal(1) : new Decimal(institution?.exchangeRate ?? 0);
+    const rate = item.currency === "BRL" ? new Decimal(1) : new Decimal(item.exchangeRate ?? institution?.exchangeRate ?? 0);
     return sum.plus(new Decimal(item.currentValue).mul(rate));
   }, new Decimal(0));
   const categoryMap = new Map<string, Decimal>();

@@ -263,6 +263,9 @@ export interface Investment {
   currentValue: DecimalValue;
   dividends: DecimalValue;
   currency: CurrencyCode;
+  /** Latest user-controlled conversion into the reporting currency. */
+  exchangeRate?: DecimalValue;
+  exchangeRateAsOf?: string;
   contractedYield?: string;
   maturityDate?: string;
   quoteStatus: "manual" | "ok" | "error";

@@ -149,4 +149,33 @@ describe("revisão da importação", () => {
     expect(screen.queryByText("Selecione contas diferentes.")).toBeNull();
   });
 
+  it("uses the card's configured payer account for an imported invoice payment", async () => {
+    const state = emptyFinanceState();
+    state.institutions.push({ id: "datanobank-account", name: "Datanobank", type: "bank", currency: "BRL", openingBalance: "0", exchangeRate: "1", createdAt: "2026-01-01", updatedAt: "2026-01-01" });
+    state.creditCards.push({
+      id: "datanobank-card", name: "Cartão Datanobank", issuer: "nubank", cardType: "credit", network: "mastercard",
+      payerInstitutionId: "datanobank-account", limit: "5000", closingDay: 20, dueDay: 28, currency: "BRL", createdAt: "2026-01-01", updatedAt: "2026-01-01",
+    });
+    financeMock.useFinance.mockReturnValue({
+      state,
+      commit: vi.fn(async (change: (draft: typeof state) => void) => change(state)),
+    });
+    importerMock.analyzeFile.mockResolvedValue({
+      source: "card-csv", institutionHint: "nubank", currency: "BRL", warnings: [],
+      document: { kind: "card_invoice", contentHash: "sha256:datanobank", source: "datanobank-card-csv", requiresCard: true },
+      candidates: [{
+        id: "invoice-payment", date: "2026-08-29", description: "Fatura paga", amount: "200", currency: "BRL",
+        parser: "card-csv", kind: "credit_payment", suggestedKind: "credit_payment",
+        confidence: .9, reason: "CSV de cartão", source: "card-csv", include: true, createInvestment: false,
+        fingerprint: "invoice-payment", duplicate: false,
+      }],
+    });
+
+    await analyze();
+    fireEvent.click(screen.getByRole("button", { name: "Revisar e importar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar importação" }));
+
+    await waitFor(() => expect(state.entries).toHaveLength(1));
+    expect(state.entries[0]).toMatchObject({ kind: "credit_payment", institutionId: "datanobank-account", creditCardId: "datanobank-card" });
+  });
 });

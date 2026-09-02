@@ -59,7 +59,17 @@ import { fetchAssetQuote, fetchExchangeRate } from "@/lib/market";
 import { dateLabel, decimalInput, money, monthLabel } from "@/lib/format";
 import { catalogInstitution, searchInstitutionCatalog } from "@/domain/institution-catalog";
 import { CARD_NETWORKS, CARD_TYPES, normalizeCardNetwork } from "@/domain/card-brands";
-import { assertCardPurchaseStructuralChangeAllowed, attachCardPurchase, cardInvoices, payCardInvoice, recordCardPurchase, removeCardPurchase, updateCardPurchase } from "@/domain/cards";
+import {
+  assertCardPurchaseStructuralChangeAllowed,
+  attachCardPurchase,
+  cardInvoices,
+  findImportedStatementInvoicePayment,
+  payCardInvoice,
+  reconcileImportedInvoicePayment,
+  recordCardPurchase,
+  removeCardPurchase,
+  updateCardPurchase,
+} from "@/domain/cards";
 import { CreditCardVisual } from "@/features/finance/CreditCardVisual";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
@@ -941,6 +951,7 @@ export function ImportView() {
   const [showBlockers, setShowBlockers] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const selected = candidates.filter((item) => item.include);
+  const selectedCard = state.creditCards.find((card) => card.id === creditCardId && !card.archivedAt);
   const patchCandidate = (index: number, patch: Partial<ImportCandidate>) =>
     setCandidates((current) => current.map((value, position) => (position === index ? withMatchingCategory({ ...value, ...patch }, state.categories) : value)));
   const setIncludeAll = (include: boolean) => setCandidates((current) => current.map((item) => ({ ...item, include })));
@@ -977,12 +988,19 @@ export function ImportView() {
   });
   const missingRate = selected.filter((item) => item.currency !== "BRL" && !item.exchangeRate);
   const missingTransferCounterparty = selected.filter((item) => item.kind === "internal_transfer" && !item.counterpartyInstitutionId);
+  const missingCardPayer = selected.filter((item) =>
+    document?.requiresCard
+      && item.kind === "credit_payment"
+      && !item.institutionId
+      && !selectedCard?.payerInstitutionId,
+  );
   const blockers = [
     ...(selected.length ? [] : ["Selecione ao menos uma movimentação para importar."]),
     ...(incomplete.length ? [`${incomplete.length} movimentação(ões) sem data, descrição ou valor: ${namesOf(incomplete)}.`] : []),
     ...(missingRate.length ? [`Informe a cotação em BRL de ${[...new Set(missingRate.map((item) => item.currency))].join(", ")} nas linhas destacadas.`] : []),
     ...(missingTransferCounterparty.length ? [`Selecione a outra conta em ${missingTransferCounterparty.length} transferência(s) interna(s).`] : []),
     ...(document?.requiresCard && !creditCardId ? ["Selecione ou cadastre o cartão desta importação antes de continuar."] : []),
+    ...(missingCardPayer.length ? ["Defina a conta pagadora do cartão ou selecione-a nesta fatura antes de continuar."] : []),
     ...(document && state.importedDocuments.some((item) => item.contentHash === document.contentHash) ? ["Este documento já foi importado."] : []),
   ];
   const blockedIds = new Set([...incomplete, ...missingRate].map((item) => item.id));
@@ -1012,10 +1030,11 @@ export function ImportView() {
     try {
       const result = await analyzeFile(file, state, { onProgress: (progress) => setBusy(progress.message) });
       setDocument(result.document);
-      if (result.document?.requiresCard && result.institutionHint) {
-        const matchingCards = state.creditCards.filter((card) => card.issuer === result.institutionHint && !card.archivedAt);
-        setCreditCardId(matchingCards.length === 1 ? matchingCards[0].id : "");
-      }
+      const matchingCards = result.document?.requiresCard && result.institutionHint
+        ? state.creditCards.filter((card) => card.issuer === result.institutionHint && !card.archivedAt)
+        : [];
+      const matchingCard = matchingCards.length === 1 ? matchingCards[0] : undefined;
+      if (matchingCard) setCreditCardId(matchingCard.id);
       const currencies = [...new Set(result.candidates.map((item) => item.currency).filter((currency) => currency !== "BRL"))];
       const rates = new Map<string, string>([["BRL", "1"]]);
       const rateWarnings: string[] = [];
@@ -1031,7 +1050,9 @@ export function ImportView() {
         const known = state.institutions.find((institution) => institution.catalogId === item.detectedInstitutionId && !institution.archivedAt);
         return suggestInternalTransfer(state, {
           ...item,
-          institutionId: item.institutionId ?? known?.id ?? (item.detectedInstitutionId ? `create:${item.detectedInstitutionId}` : undefined),
+          institutionId: item.kind === "credit_payment" && matchingCard?.payerInstitutionId
+            ? matchingCard.payerInstitutionId
+            : item.institutionId ?? known?.id ?? (item.detectedInstitutionId ? `create:${item.detectedInstitutionId}` : undefined),
           exchangeRate: rates.get(item.currency),
         });
       }));
@@ -1082,6 +1103,30 @@ export function ImportView() {
             createdInstitutions.set(catalogId, institutionId);
           }
         }
+        const card = document?.requiresCard && creditCardId
+          ? draft.creditCards.find((value) => value.id === creditCardId && !value.archivedAt)
+          : undefined;
+        if (card && item.kind === "credit_payment") {
+          reconcileImportedInvoicePayment(draft, {
+            cardId: card.id,
+            date: item.date,
+            amount: item.amount,
+            description: item.description,
+            institutionId,
+            importedDocumentId,
+            fingerprint: importFingerprint(institutionId, item.date, item.description, item.amount, item.kind),
+            brlRate: item.exchangeRate,
+            notes: `${item.externalId ? `external:${item.externalId} ` : ""}Importado por ${item.parser}`.trim(),
+          });
+          continue;
+        }
+        if (!document?.requiresCard && institutionId && findImportedStatementInvoicePayment(draft, {
+          institutionId,
+          date: item.date,
+          amount: item.amount,
+          currency: item.currency,
+          description: item.description,
+        })) continue;
         if (item.createInvestment && item.kind === "investment_contribution" && institutionId) {
           const amount = new Decimal(item.amount).abs().toString();
           const positionKey = rdbPositionKey(institutionId, item.description);
@@ -1758,7 +1803,11 @@ export function InvestmentsPage() {
   const active = state.investments.filter((item) => !item.archivedAt);
   const displayGroups = useMemo(() => investmentDisplayGroups(state), [state]);
   const total = active
-    .reduce((sum, item) => sum.plus(item.currentValue), new Decimal(0))
+    .reduce((sum, item) => {
+      const institution = state.institutions.find((candidate) => candidate.id === item.institutionId);
+      const rate = item.currency === "BRL" ? 1 : item.exchangeRate ?? institution?.exchangeRate ?? 0;
+      return sum.plus(new Decimal(item.currentValue).mul(rate));
+    }, new Decimal(0))
     .toString();
   const sync = async (item: Investment) => {
     if (!item.ticker) return;
@@ -1896,6 +1945,9 @@ export function InvestmentsPage() {
                   <div>
                     <span>Atual</span>
                     <strong>{money(currentValue.toString(), item.currency)}</strong>
+                    {item.currency !== "BRL" && <small>
+                      Em reais: {money(currentValue.mul(item.exchangeRate ?? institution?.exchangeRate ?? 0).toString())}
+                    </small>}
                   </div>
                   <div>
                     <span>Resultado</span>
@@ -2017,6 +2069,7 @@ function InvestmentDialog({
 }) {
   const [investmentType, setInvestmentType] = useState<InvestmentType>(value?.type ?? "cdb");
   const [institutionId, setInstitutionId] = useState(value?.institutionId ?? "");
+  const [currency, setCurrency] = useState(value?.currency ?? "BRL");
   const isCashReserve = investmentType === "cash_box";
   return (
     <Modal title={value ? "Editar investimento" : "Novo investimento"} onClose={onClose}>
@@ -2049,7 +2102,11 @@ function InvestmentDialog({
                 new Decimal(quantity).mul(currentPrice).toString(),
               ),
               dividends: decimalInput(data.get("dividends")),
-              currency: String(data.get("currency") || "BRL").toUpperCase(),
+              currency,
+              exchangeRate: currency === "BRL"
+                ? "1"
+                : decimalInput(data.get("exchangeRate"), value?.exchangeRate ?? "0"),
+              exchangeRateAsOf: currency === "BRL" ? undefined : new Date().toISOString().slice(0, 10),
               contractedYield: String(data.get("contractedYield") || "") || undefined,
               maturityDate: String(data.get("maturityDate") || "") || undefined,
               quoteStatus: value?.quoteStatus ?? "manual",
@@ -2092,8 +2149,11 @@ function InvestmentDialog({
           <input name="ticker" defaultValue={value?.ticker} />
         </Field>
         <Field label="Moeda">
-          <input name="currency" defaultValue={value?.currency ?? "BRL"} />
+          <input name="currency" value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
         </Field>
+        {currency !== "BRL" && <Field label="Cotação para BRL">
+          <input required name="exchangeRate" inputMode="decimal" defaultValue={value?.exchangeRate ?? ""} />
+        </Field>}
         <Field label="Quantidade">
           <input name="quantity" inputMode="decimal" defaultValue={value?.quantity ?? "1"} />
         </Field>
