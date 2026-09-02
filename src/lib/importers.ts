@@ -134,7 +134,18 @@ function validRows(rows: ParsedRow[], state: FinanceState, parser: string, hint?
   rows.forEach((row, index) => {
     if (!row.date || !row.description || new Decimal(row.amount).isZero()) warnings.push(`Linha ${index + 1} ignorada: data, descrição ou valor inválido.`);
     else if (/saldo(?: do dia| inicial| final)?|total de |limite da conta|per[ií]odo/.test(normalize(row.description))) warnings.push(`Linha ${index + 1} ignorada: saldo ou total.`);
-    else candidates.push(candidate(row, state, parser, hint));
+    else {
+      const parsed = candidate(row, state, parser, hint);
+      if (parsed.kind === "credit_payment") {
+        candidates.push({
+          ...parsed,
+          kind: "expense",
+          suggestedKind: "expense",
+          fingerprint: importFingerprint(hint, row.date, parsed.description, row.amount, "expense"),
+          reason: "Invoice payment from a bank statement; pending reconciliation with the card invoice.",
+        });
+      } else candidates.push(parsed);
+    }
   });
   return { source: parser, institutionHint: hint, currency: candidates[0]?.currency ?? "BRL", candidates, warnings };
 }

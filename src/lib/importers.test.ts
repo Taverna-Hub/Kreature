@@ -122,3 +122,15 @@ describe("StatementImport", () => {
     expect(card.candidates[0].categoryId).toBe(state.categories.find((category) => category.name === "Compras")?.id);
   });
 });
+  it("keeps a bank-statement invoice payment as an expense until reconciliation", async () => {
+    const result = await analyzeFile(
+      new File([
+        "Data,Valor,Identificador,Descricao\n10/01/2026,-200.00,id-1,Pagamento de fatura",
+      ], "NU_CONSOLIDADO_EXTRATOS.csv", { type: "text/csv" }),
+      emptyFinanceState(),
+    );
+
+    expect(result.candidates).toEqual([
+      expect.objectContaining({ kind: "expense", suggestedKind: "expense", createInvestment: false }),
+    ]);
+  });
