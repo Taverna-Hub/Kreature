@@ -810,10 +810,12 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       };
       if (!prior) {
         if (!investment.institutionId && investment.type !== "cash_box") throw new Error("Escolha a conta de custódia do investimento.");
-        const written = await this.gateway.writeInvestmentAsset({ operation: "create", asset: payload });
+        const written = await this.gateway.writeInvestmentAsset({ operation: "create", id: investment.id, asset: payload });
         if (written.holding_id) {
-          this.holdings.set(written.asset_id, written.holding_id);
-          await this.stateOpeningPosition(written.holding_id, investment);
+          this.holdings.set(investment.id, written.holding_id);
+          if (!next.financialMovements.some((movement) => movement.investmentId === investment.id)) {
+            await this.stateOpeningPosition(written.holding_id, investment);
+          }
         }
         continue;
       }

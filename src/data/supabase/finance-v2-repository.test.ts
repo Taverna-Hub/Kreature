@@ -398,3 +398,30 @@ describe("repositório v2", () => {
     });
   });
 });
+  it("persists a new imported investment without duplicating its opening position", async () => {
+    const fixture = fakeGateway();
+    const importRepository = new SupabaseFinanceV2Repository(fixture.gateway);
+    await importRepository.transact((draft) => {
+      draft.investments.push({
+        id: "investment-import", institutionId: "acc-broker", type: "other", name: "Imported investment",
+        quantity: "1", averagePrice: "100", investedAmount: "100", currentPrice: "100", currentValue: "100",
+        dividends: "0", currency: "BRL", quoteStatus: "manual", createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z",
+      });
+      draft.financialMovements.push({
+        id: "movement-import", kind: "investment_contribution", date: "2026-02-01", description: "Imported investment",
+        amount: "100", currency: "BRL", brlAmount: "100", investmentId: "investment-import", source: "import",
+        createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z",
+      });
+      draft.entries.push({
+        id: "entry-import", date: "2026-02-01", description: "Imported investment", amount: "-100", currency: "BRL", brlAmount: "-100",
+        kind: "investment_contribution", institutionId: "acc-broker", investmentId: "investment-import", financialMovementId: "movement-import",
+        source: "import", ignoredFromAnalytics: true, createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z",
+      });
+    });
+
+    expect(fixture.calls.find((call) => call.method === "writeInvestmentAsset")?.payload).toMatchObject({ operation: "create", id: "investment-import" });
+    expect(fixture.calls.filter((call) => call.method === "writeInvestmentOperation")).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ operation: "contribution", holdingId: "holding-new", cashAccountId: "acc-broker", principalAmount: "100" }) }),
+    ]);
+  });
+

@@ -1130,7 +1130,7 @@ export function ImportView() {
         if (item.createInvestment && item.kind === "investment_contribution" && institutionId) {
           const amount = new Decimal(item.amount).abs().toString();
           const positionKey = rdbPositionKey(institutionId, item.description);
-          let investment = positionKey ? draft.investments.find((value) => importedRdbPositionKey(value) === positionKey) : undefined;
+          let investment = positionKey ? draft.investments.find((value) => !value.archivedAt && importedRdbPositionKey(value) === positionKey) : undefined;
           if (!investment) {
             investment = { id: uid("investment"), institutionId, type: "other" as const, name: item.description, quantity: "0", averagePrice: "0", investedAmount: "0", currentPrice: "0", currentValue: "0", dividends: "0", currency: item.currency, quoteStatus: "manual" as const, quoteMessage: "Criado pela importação", createdAt: now(), updatedAt: now() };
             draft.investments.push(investment);
@@ -1186,7 +1186,7 @@ export function ImportView() {
           const amount = new Decimal(item.amount).abs().toString();
           const positionKey = rdbPositionKey(institutionId, item.description);
           const existing = positionKey
-            ? draft.investments.find((investment) => importedRdbPositionKey(investment) === positionKey)
+            ? draft.investments.find((investment) => !investment.archivedAt && importedRdbPositionKey(investment) === positionKey)
             : undefined;
           if (existing) {
             const quantity = new Decimal(existing.quantity).plus(1);
