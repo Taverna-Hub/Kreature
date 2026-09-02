@@ -47,13 +47,13 @@ function buildEntry(input: EntryInput, id = uid("entry"), createdAt = now(), flo
 
 function assertAccount(state: FinanceState, institutionId: string) {
   const account = state.institutions.find((item) => item.id === institutionId && !item.archivedAt);
-  if (!account) throw new Error("Conta invÃ¡lida ou arquivada.");
+  if (!account) throw new Error("Conta inválida ou arquivada.");
   return account;
 }
 
 function assertInvestment(state: FinanceState, investmentId: string) {
   const investment = state.investments.find((item) => item.id === investmentId && !item.archivedAt);
-  if (!investment) throw new Error("Investimento invÃ¡lido ou arquivado.");
+  if (!investment) throw new Error("Investimento inválido ou arquivado.");
   return investment;
 }
 
@@ -67,7 +67,7 @@ function entryKindForMovement(kind: FinancialMovementKind): LedgerEntry["kind"] 
 
 export function createFinancialMovement(state: FinanceState, input: MovementInput): FinancialMovement {
   const amount = new Decimal(input.amount).abs();
-  if (amount.isZero()) throw new Error("O valor da movimentaÃ§Ã£o deve ser maior que zero.");
+  if (amount.isZero()) throw new Error("O valor da movimentação deve ser maior que zero.");
   const rate = new Decimal(input.brlRate ?? (input.currency === "BRL" ? 1 : 0));
   const movement: FinancialMovement = {
     id: uid("movement"), kind: input.kind, date: input.date, description: input.description,
@@ -103,7 +103,7 @@ export function recordEntry(state: FinanceState, input: EntryInput): LedgerEntry
   }
   if (input.institutionId) assertAccount(state, input.institutionId);
   if (input.investmentId) assertInvestment(state, input.investmentId);
-  if (input.categoryId && !state.categories.some((item) => item.id === input.categoryId && !item.archivedAt)) throw new Error("Categoria invÃ¡lida ou arquivada.");
+  if (input.categoryId && !state.categories.some((item) => item.id === input.categoryId && !item.archivedAt)) throw new Error("Categoria inválida ou arquivada.");
   const flow = categoryFlow(state, input.categoryId);
   const entry = buildEntry(input, undefined, undefined, flow);
   const movement = createFinancialMovement(state, {
@@ -120,10 +120,10 @@ export function recordEntry(state: FinanceState, input: EntryInput): LedgerEntry
 
 export function updateEntry(state: FinanceState, id: string, input: EntryInput): LedgerEntry {
   const index = state.entries.findIndex((item) => item.id === id);
-  if (index < 0) throw new Error("LanÃ§amento nÃ£o encontrado.");
+  if (index < 0) throw new Error("Lançamento não encontrado.");
   const previous = state.entries[index];
   const movement = previous.financialMovementId ? state.financialMovements.find((item) => item.id === previous.financialMovementId) : undefined;
-  if (movement && state.entries.filter((item) => item.financialMovementId === movement.id).length > 1) throw new Error("Edite uma transferÃªncia, aplicaÃ§Ã£o ou resgate pelo movimento completo.");
+  if (movement && state.entries.filter((item) => item.financialMovementId === movement.id).length > 1) throw new Error("Edite uma transferência, aplicação ou resgate pelo movimento completo.");
   const updated = buildEntry({ ...input, financialMovementId: previous.financialMovementId }, id, previous.createdAt, categoryFlow(state, input.categoryId));
   state.entries[index] = updated;
   if (movement) {
@@ -141,7 +141,7 @@ export function updateEntry(state: FinanceState, id: string, input: EntryInput):
 }
 
 export function removeMovement(state: FinanceState, movementId: string) {
-  if (!state.financialMovements.some((item) => item.id === movementId)) throw new Error("MovimentaÃ§Ã£o nÃ£o encontrada.");
+  if (!state.financialMovements.some((item) => item.id === movementId)) throw new Error("Movimentação não encontrada.");
   const entryIds = new Set(state.entries.filter((item) => item.financialMovementId === movementId).map((item) => item.id));
   state.cardPurchases = state.cardPurchases.filter((item) => !entryIds.has(item.ledgerEntryId));
   state.entries = state.entries.filter((item) => item.financialMovementId !== movementId);
@@ -150,7 +150,7 @@ export function removeMovement(state: FinanceState, movementId: string) {
 
 export function removeEntry(state: FinanceState, id: string) {
   const entry = state.entries.find((item) => item.id === id);
-  if (!entry) throw new Error("LanÃ§amento nÃ£o encontrado.");
+  if (!entry) throw new Error("Lançamento não encontrado.");
   if (entry.financialMovementId) return removeMovement(state, entry.financialMovementId);
   const entryIds = new Set(
     entry.transferGroupId
@@ -163,7 +163,7 @@ export function removeEntry(state: FinanceState, id: string) {
 
 export function institutionBalance(state: FinanceState, institutionId: string): string {
   const institution = state.institutions.find((item) => item.id === institutionId);
-  if (!institution) throw new Error("InstituiÃ§Ã£o nÃ£o encontrada.");
+  if (!institution) throw new Error("Instituição não encontrada.");
   return state.entries.filter((item) => item.institutionId === institutionId).reduce((sum, item) => sum.plus(item.amount), new Decimal(institution.openingBalance)).toString();
 }
 
@@ -177,8 +177,8 @@ export function transfer(state: FinanceState, input: { fromInstitutionId: string
   const from = assertAccount(state, input.fromInstitutionId);
   const to = assertAccount(state, input.toInstitutionId);
   if (from.id === to.id) throw new Error("Selecione contas diferentes.");
-  if (from.currency !== to.currency) throw new Error("TransferÃªncias diretas exigem contas na mesma moeda.");
-  const movement = createFinancialMovement(state, { kind: "internal_transfer", date: input.date, description: input.description || `TransferÃªncia ${from.name} â†’ ${to.name}`, amount: input.amount, currency: from.currency, brlRate: from.exchangeRate });
+  if (from.currency !== to.currency) throw new Error("Transferências diretas exigem contas na mesma moeda.");
+  const movement = createFinancialMovement(state, { kind: "internal_transfer", date: input.date, description: input.description || `Transferência ${from.name} → ${to.name}`, amount: input.amount, currency: from.currency, brlRate: from.exchangeRate });
   const debit = addLeg(state, movement, { date: input.date, description: movement.description, amount: new Decimal(input.amount).abs().negated().toString(), currency: from.currency, brlRate: from.exchangeRate, institutionId: from.id });
   const credit = addLeg(state, movement, { date: input.date, description: movement.description, amount: new Decimal(input.amount).abs().toString(), currency: to.currency, brlRate: to.exchangeRate, institutionId: to.id });
   return [debit, credit];
@@ -197,7 +197,7 @@ export function investmentContribution(state: FinanceState, input: { fromInstitu
   const from = assertAccount(state, input.fromInstitutionId);
   const investment = assertInvestment(state, input.investmentId);
   if (from.currency !== investment.currency) throw new Error("Aporte exige conta e investimento na mesma moeda.");
-  const movement = createFinancialMovement(state, { kind: "investment_contribution", date: input.date, description: input.description || `AplicaÃ§Ã£o em ${investment.name}`, amount: input.amount, currency: from.currency, brlRate: from.exchangeRate, investmentId: investment.id });
+  const movement = createFinancialMovement(state, { kind: "investment_contribution", date: input.date, description: input.description || `Aplicação em ${investment.name}`, amount: input.amount, currency: from.currency, brlRate: from.exchangeRate, investmentId: investment.id });
   const debit = addLeg(state, movement, { date: input.date, description: movement.description, amount: new Decimal(input.amount).abs().negated().toString(), currency: from.currency, brlRate: from.exchangeRate, institutionId: from.id });
   const credit = addLeg(state, movement, { date: input.date, description: movement.description, amount: new Decimal(input.amount).abs().toString(), currency: investment.currency, brlRate: from.exchangeRate, investmentId: investment.id });
   updateInvestmentContribution(investment, new Decimal(input.amount).abs());
@@ -210,7 +210,7 @@ export function investmentWithdrawal(state: FinanceState, input: { toInstitution
   const amount = new Decimal(input.amount).abs();
   const currentValue = new Decimal(investment.currentValue);
   if (to.currency !== investment.currency) throw new Error("Resgate exige conta e investimento na mesma moeda.");
-  if (amount.gt(currentValue)) throw new Error("O resgate nÃ£o pode superar o valor atual do investimento.");
+  if (amount.gt(currentValue)) throw new Error("O resgate não pode superar o valor atual do investimento.");
   const cost = Decimal.min(new Decimal(investment.investedAmount), new Decimal(investment.investedAmount).mul(amount).div(currentValue));
   const income = Decimal.max(new Decimal(0), amount.minus(cost));
   const movement = createFinancialMovement(state, { kind: "investment_withdrawal", date: input.date, description: input.description || `Resgate de ${investment.name}`, amount: amount.toString(), currency: to.currency, brlRate: to.exchangeRate, investmentId: investment.id });
@@ -222,7 +222,7 @@ export function investmentWithdrawal(state: FinanceState, input: { toInstitution
   investment.averagePrice = new Decimal(investment.quantity).isZero() ? "0" : new Decimal(investment.investedAmount).div(investment.quantity).toString();
   investment.currentPrice = new Decimal(investment.quantity).isZero() ? "0" : new Decimal(investment.currentValue).div(investment.quantity).toString();
   investment.updatedAt = now();
-  const incomeMovement = income.isZero() ? undefined : createFinancialMovement(state, { kind: "investment_income", date: input.date, description: `Rendimento realizado â€¢ ${investment.name}`, amount: income.toString(), currency: to.currency, brlRate: to.exchangeRate, investmentId: investment.id, relatedMovementId: movement.id, source: "reconciliation" });
+  const incomeMovement = income.isZero() ? undefined : createFinancialMovement(state, { kind: "investment_income", date: input.date, description: `Rendimento realizado • ${investment.name}`, amount: income.toString(), currency: to.currency, brlRate: to.exchangeRate, investmentId: investment.id, relatedMovementId: movement.id, source: "reconciliation" });
   return { movement, debit, credit, principal: cost.toString(), income: income.toString(), incomeMovement };
 }
 

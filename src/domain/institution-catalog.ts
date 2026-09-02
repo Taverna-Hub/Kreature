@@ -14,6 +14,7 @@ const seed: CatalogSeed[] = [
   ["rico", "Rico", "broker", undefined, "#00a651", "#00753a", "#ffffff"], ["clear", "Clear", "broker", undefined, "#00a6e0", "#007ead", "#ffffff"],
   ["mercado-pago", "Mercado Pago", "wallet", undefined, "#050505", "#000000", "#ffffff"], ["picpay", "PicPay", "wallet", undefined, "#21c25e", "#12873d", "#ffffff"],
   ["neon", "Neon", "bank", "536", "#00e5ff", "#15224f", "#15224f"], ["wise", "Wise", "wallet", undefined, "#9fe870", "#163300", "#163300"],
+  ["nomad", "Nomad", "wallet", undefined, "#FFDE21", "#FFDE21", "#1A1A13"],
 ];
 export const INSTITUTION_CATALOG: readonly InstitutionCatalogItem[] = seed.map(([id, name, type, bankCode, primaryColor, secondaryColor, foregroundColor]) => ({ id, name, type, bankCode, primaryColor, secondaryColor, foregroundColor, logoKey: id as InstitutionLogoKey, logoPath: `/institutions/${id}.svg`, aliases: [name, name.replace(/\s+/g, ""), id.replace(/-/g, " ")] }));
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();

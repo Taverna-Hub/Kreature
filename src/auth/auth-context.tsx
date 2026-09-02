@@ -20,7 +20,7 @@ export const appUrl = () => import.meta.env.VITE_APP_URL?.replace(/\/$/, "") || 
 
 const publicMessage = (fallback: string, cause?: { message?: string }) =>
   cause?.message && /failed to fetch|network|fetch failed|load failed/i.test(cause.message)
-    ? "NÃ£o foi possÃ­vel conectar ao Supabase. Tente novamente quando sua conexÃ£o voltar."
+    ? "Não foi possível conectar ao Supabase. Tente novamente quando sua conexão voltar."
     : fallback;
 
 /** Development-only observability; never logs a session, email, access token or refresh token. */
@@ -46,7 +46,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     try {
       supabase = getSupabase();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "NÃ£o foi possÃ­vel configurar o acesso seguro.");
+      setError(cause instanceof Error ? cause.message : "Não foi possível configurar o acesso seguro.");
       setStatus("anonymous");
       return undefined;
     }
@@ -56,7 +56,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       initialResolved = true;
       // getSession reads Supabase's persisted session. It must not be replaced by a
       // network-only getUser() request during startup.
-      if (cause) setError(publicMessage("NÃ£o foi possÃ­vel restaurar sua sessÃ£o.", cause));
+      if (cause) setError(publicMessage("Não foi possível restaurar sua sessão.", cause));
       else setError(undefined);
       applySession("INITIAL_RESTORE", nextSession);
     };
@@ -86,7 +86,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { data, error: cause } = await getSupabase().auth.signInWithPassword({ email, password });
-    if (cause) throw new Error("E-mail ou senha invÃ¡lidos.");
+    if (cause) throw new Error("E-mail ou senha inválidos.");
     // The auth listener also receives SIGNED_IN. Applying it here avoids a route
     // transition racing that asynchronous event.
     applySession("SIGNED_IN", data.session);
@@ -98,12 +98,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       password,
       options: { data: { display_name: displayName }, emailRedirectTo: `${appUrl()}/auth/callback` },
     });
-    if (cause) throw new Error("NÃ£o foi possÃ­vel criar sua conta. Revise os dados e tente novamente.");
+    if (cause) throw new Error("Não foi possível criar sua conta. Revise os dados e tente novamente.");
   }, []);
 
   const signOut = useCallback(async () => {
     const { error: cause } = await getSupabase().auth.signOut();
-    if (cause) throw new Error("NÃ£o foi possÃ­vel encerrar sua sessÃ£o.");
+    if (cause) throw new Error("Não foi possível encerrar sua sessão.");
     // Explicit logout is the sole local operation allowed to clear auth state.
     applySession("SIGNED_OUT", null);
   }, [applySession]);
@@ -112,12 +112,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const { error: cause } = await getSupabase().auth.resetPasswordForEmail(email, {
       redirectTo: `${appUrl()}/auth/callback?next=/redefinir-senha`,
     });
-    if (cause) throw new Error("NÃ£o foi possÃ­vel enviar o e-mail de recuperaÃ§Ã£o.");
+    if (cause) throw new Error("Não foi possível enviar o e-mail de recuperação.");
   }, []);
 
   const updatePassword = useCallback(async (password: string) => {
     const { error: cause } = await getSupabase().auth.updateUser({ password });
-    if (cause) throw new Error("NÃ£o foi possÃ­vel atualizar sua senha.");
+    if (cause) throw new Error("Não foi possível atualizar sua senha.");
   }, []);
 
   const value = useMemo(() => ({

@@ -37,13 +37,17 @@ pelo frontend, mas guarda os dados de v1 até o corte.
 ## Corte
 
 1. Remover o trigger v1 `on_auth_user_created` (o v2 já está ativo em paralelo).
-2. Remover os objetos do bucket `category-images`.
+2. `category-images` fica preservado por decisão do operador, sem as políticas
+   legadas de acesso. Caso seja removido no futuro, use a API de Storage ou o
+   Dashboard; não execute `DELETE` em `storage.objects`, pois isso é bloqueado
+   pelo Supabase para impedir arquivos físicos órfãos.
 3. Excluir `auth.users`. Todo o dado privado v1 e v2 cai por cascade — as FKs
    internas de cada tenant foram convertidas para `NO ACTION DEFERRABLE`
    justamente para que essa exclusão consiga acontecer em uma transação.
 4. Validar que nenhuma sessão e nenhum registro privado restaram.
-5. Executar o SQL explícito de remoção do schema `public`, em revisão separada.
-6. Reduzir a Data API a `api` e habilitar signup novamente.
+5. Aplicar `20260901131000_finance_v2_destructive_cutover.sql`, que remove o
+   trigger/políticas v1 e recria `public` vazio e sem acesso público.
+6. A migration de corte reduz a Data API a `api`; habilitar signup novamente.
 
 ## Rollback
 

@@ -224,7 +224,15 @@ function safeMessage(code: string | undefined, message: string) {
 }
 
 async function callRpc<T>(client: SupabaseClient, name: string, args: Json): Promise<T> {
-  const { data, error } = await client.rpc(name, args);
+  let result = await client.rpc(name, args);
+  // PostgREST can briefly reject a freshly-issued, otherwise valid Supabase
+  // JWT when its clock lags Auth. Retry exactly once without weakening JWT
+  // verification or retrying writes for any other database failure.
+  if (result.error?.code === "PGRST303" || /jwt issued at future/i.test(result.error?.message ?? "")) {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    result = await client.rpc(name, args);
+  }
+  const { data, error } = result;
   if (error) {
     const status = error.code === "40001" ? 409 : error.code === "23505" ? 409 : error.code === "42501" ? 403 : 400;
     throw new RequestError(safeMessage(error.code ?? undefined, error.message ?? ""), status, error.code ?? undefined);

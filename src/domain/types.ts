@@ -118,7 +118,8 @@ export type InstitutionCatalogId =
   | "mercado-pago"
   | "picpay"
   | "neon"
-  | "wise";
+  | "wise"
+  | "nomad";
 
 export type InstitutionLogoKey = InstitutionCatalogId | "other";
 

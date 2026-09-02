@@ -55,7 +55,7 @@ describe("movimentos patrimoniais", () => {
     expect(buildSummary(state, { mode: "all" })).toMatchObject({ expenses: "0", income: "0", available: "4000" });
   });
 
-  it("separa principal e rendimento no resgate pelo custo mÃ©dio", () => {
+  it("separa principal e rendimento no resgate pelo custo médio", () => {
     const state = emptyFinanceState();
     state.institutions.push(institution("bank", "0"));
     state.investments.push(investment("cdb", "1100", "1000"));
@@ -314,8 +314,8 @@ describe("recorrências", () => {
   });
 });
 
-describe("realizaÃ§Ã£o planejada", () => {
-  it("preserva previsto, registra data efetiva e desfaz o movimento automÃ¡tico", () => {
+describe("realização planejada", () => {
+  it("preserva previsto, registra data efetiva e desfaz o movimento automático", () => {
     const state = emptyFinanceState();
     state.institutions.push(institution("bank"));
     state.plannedEntries.push({ id: "rent-effective", startDate: "2026-08-30", description: "Aluguel", amount: "1500", kind: "income", institutionId: "bank", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
@@ -328,17 +328,17 @@ describe("realizaÃ§Ã£o planejada", () => {
     expect(state.plannedEntries[0].exceptions[0].settledEntryId).toBeUndefined();
   });
 
-  it("bloqueia undo quando a realizaÃ§Ã£o foi editada", () => {
+  it("bloqueia undo quando a realização foi editada", () => {
     const state = emptyFinanceState();
     state.institutions.push(institution("bank"));
     state.plannedEntries.push({ id: "protected", startDate: "2026-08-20", description: "Conta", amount: "10", kind: "expense", institutionId: "bank", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });
     const entry = settleOccurrence(state, "protected", "2026-08-20", { effectiveDate: "2026-08-20" });
     updateEntry(state, entry.id, { date: entry.date, description: "Conta corrigida", amount: "10", currency: "BRL", kind: "expense", institutionId: "bank" });
-    expect(() => undoOccurrence(state, "protected", "2026-08-20")).toThrow("NÃ£o Ã© possÃ­vel desfazer");
+    expect(() => undoOccurrence(state, "protected", "2026-08-20")).toThrow("Não é possível desfazer");
     expect(state.entries).toHaveLength(1);
   });
 
-  it("desfaz uma realizaÃ§Ã£o legada que ainda preserva o movimento automÃ¡tico", () => {
+  it("desfaz uma realização legada que ainda preserva o movimento automático", () => {
     const state = emptyFinanceState();
     state.institutions.push(institution("bank"));
     state.plannedEntries.push({ id: "legacy-planned", startDate: "2026-08-20", description: "Aluguel", amount: "1500", kind: "expense", institutionId: "bank", frequency: "once", exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" });

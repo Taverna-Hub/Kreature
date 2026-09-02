@@ -32,6 +32,6 @@ export function suggestInternalTransfer(state: FinanceState, candidate: ImportCa
   return {
     ...candidate,
     counterpartyInstitutionId: match.institutionId,
-    internalTransferSuggestion: { confidence: 0.9, reason: "PossÃ­vel transferÃªncia entre suas contas; confirme a conta de destino." },
+    internalTransferSuggestion: { confidence: 0.9, reason: "Possível transferência entre suas contas; confirme a conta de destino." },
   };
 }

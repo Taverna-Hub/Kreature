@@ -2178,7 +2178,7 @@ export function PlanningPage() {
                 <span className="timeline-date">{dateLabel(item.date)}</span>
                 <div>
                   <strong>{item.description}</strong>
-                   <small>{item.settled ? "Realizado" : "Planejado"} Â· {paymentMethodLabel(item.paymentMethod)}</small>
+                   <small>{item.settled ? "Realizado" : "Planejado"} · {paymentMethodLabel(item.paymentMethod)}</small>
                 </div>
                 <span className={item.kind === "income" ? "positive" : "negative"}>
                   {item.kind === "income" ? "+" : "−"}
@@ -2196,8 +2196,8 @@ export function PlanningPage() {
                   )}
                   {item.settled && (
                     <IconButton
-                      label="Desfazer conclusÃ£o"
-                      onClick={() => void commit((draft) => undoOccurrence(draft, item.planId, item.date)).catch((error) => notify(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel desfazer a conclusÃ£o.", "error"))}
+                      label="Desfazer conclusão"
+                      onClick={() => void commit((draft) => undoOccurrence(draft, item.planId, item.date)).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível desfazer a conclusão.", "error"))}
                     >
                       <Undo2 />
                     </IconButton>
@@ -2281,10 +2281,10 @@ export function PlanningPage() {
       {completing && <CompleteOccurrenceDialog occurrence={completing} onClose={() => setCompleting(undefined)} onConfirm={async (effectiveDate, effectiveAmount) => {
         try {
           await commit((draft) => settleOccurrence(draft, completing.planId, completing.date, { effectiveDate, effectiveAmount }));
-          notify("Planejamento concluÃ­do.");
+          notify("Planejamento concluído.");
           setCompleting(undefined);
         } catch (error) {
-          notify(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel concluir o planejamento.", "error");
+          notify(error instanceof Error ? error.message : "Não foi possível concluir o planejamento.", "error");
         }
       }} />}
     </Page>
@@ -2309,7 +2309,7 @@ function CompleteOccurrenceDialog({
         event.preventDefault();
         void onConfirm(effectiveDate, decimalInput(effectiveAmount));
       }}>
-        <p className="form-hint full">Previsto: {dateLabel(occurrence.date)} · {money(occurrence.amount)}. O previsto serÃ¡ preservado para comparaÃ§Ã£o.</p>
+        <p className="form-hint full">Previsto: {dateLabel(occurrence.date)} · {money(occurrence.amount)}. O previsto será preservado para comparação.</p>
         {!isCard && <>
         <Field label="Data efetiva">
           <DatePicker value={effectiveDate} onChange={setEffectiveDate} label="Data efetiva" />
@@ -2318,7 +2318,7 @@ function CompleteOccurrenceDialog({
           <input required inputMode="decimal" value={effectiveAmount} onChange={(event) => setEffectiveAmount(event.target.value)} />
         </Field>
         </>}
-        {isCard && <p className="form-hint full">A compra serÃ¡ criada na fatura com a data e o valor originais. Nenhuma conta bancÃ¡ria serÃ¡ debitada agora.</p>}
+        {isCard && <p className="form-hint full">A compra será criada na fatura com a data e o valor originais. Nenhuma conta bancária será debitada agora.</p>}
         <div className="form-actions full">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
           <Button type="submit">{isCard ? "Adicionar à fatura" : `Concluir em ${dateLabel(effectiveDate)}`}</Button>

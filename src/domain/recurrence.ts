@@ -105,7 +105,7 @@ export function settleOccurrence(
   const effectiveDate = paymentMethod === "credit_card"
     ? occurrence.date
     : realization.effectiveDate ?? occurrence.date;
-  if (effectiveDate > day(new Date())) throw new Error("A data efetiva nÃ£o pode estar no futuro.");
+  if (effectiveDate > day(new Date())) throw new Error("A data efetiva não pode estar no futuro.");
   const effectiveAmount = paymentMethod === "credit_card"
     ? occurrence.amount
     : realization.effectiveAmount ?? occurrence.amount;
@@ -193,9 +193,9 @@ function plannedEntryFingerprint(entry: { id: string; date: string; description:
  */
 export function undoOccurrence(state: FinanceState, planId: string, occurrenceDate: string) {
   const plan = state.plannedEntries.find((item) => item.id === planId);
-  if (!plan) throw new Error("Planejamento nÃ£o encontrado.");
+  if (!plan) throw new Error("Planejamento não encontrado.");
   const exception = plan.exceptions.find((item) => item.date === occurrenceDate);
-  if (!exception?.settledEntryId) throw new Error("Esta ocorrÃªncia ainda nÃ£o foi concluÃ­da.");
+  if (!exception?.settledEntryId) throw new Error("Esta ocorrência ainda não foi concluída.");
   const entry = state.entries.find((item) => item.id === exception.settledEntryId);
   const movement = entry?.financialMovementId
     ? state.financialMovements.find((item) => item.id === entry.financialMovementId)
@@ -218,7 +218,7 @@ export function undoOccurrence(state: FinanceState, planId: string, occurrenceDa
     !entry.importedDocumentId &&
     fingerprintMatches;
   if (!isUntouched && !isLegacyUntouched)
-    throw new Error("NÃ£o Ã© possÃ­vel desfazer: a movimentaÃ§Ã£o realizada foi editada, conciliada ou vinculada a outro registro.");
+    throw new Error("Não é possível desfazer: a movimentação realizada foi editada, conciliada ou vinculada a outro registro.");
   removeEntry(state, entry.id);
   Object.assign(exception, {
     settledEntryId: undefined,

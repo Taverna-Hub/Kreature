@@ -5,7 +5,7 @@ import { suggestInternalTransfer } from "./internal-transfers";
 const account = (id: string) => ({ id, name: id, type: "bank" as const, currency: "BRL", openingBalance: "0", exchangeRate: "1", createdAt: "", updatedAt: "" });
 
 describe("suggestInternalTransfer", () => {
-  it("sugere apenas uma contraparte oposta e inequÃ­voca", () => {
+  it("sugere apenas uma contraparte oposta e inequívoca", () => {
     const state = emptyFinanceState();
     state.institutions.push(account("Nubank"), account("Inter"));
     state.entries.push({ id: "in", date: "2026-08-10", description: "Pix recebido Nubank", amount: "500", brlAmount: "500", currency: "BRL", kind: "pix", institutionId: "Inter", source: "import", ignoredFromAnalytics: false, createdAt: "", updatedAt: "" });
@@ -13,7 +13,7 @@ describe("suggestInternalTransfer", () => {
     expect(result).toMatchObject({ counterpartyInstitutionId: "Inter", internalTransferSuggestion: { confidence: 0.9 } });
   });
 
-  it("nÃ£o sugere quando hÃ¡ mais de uma contraparte possÃ­vel", () => {
+  it("não sugere quando há mais de uma contraparte possível", () => {
     const state = emptyFinanceState();
     state.institutions.push(account("Nubank"), account("Inter"), account("C6"));
     for (const id of ["Inter", "C6"]) state.entries.push({ id, date: "2026-08-10", description: "Pix recebido Nubank", amount: "500", brlAmount: "500", currency: "BRL", kind: "pix", institutionId: id, source: "import", ignoredFromAnalytics: false, createdAt: "", updatedAt: "" });
