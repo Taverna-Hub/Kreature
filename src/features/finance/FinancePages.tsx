@@ -11,7 +11,6 @@ import {
   Sparkles,
   Monitor,
   Moon,
-  MoreVertical,
   LogOut,
   Sun,
   Trash2,
@@ -75,7 +74,9 @@ import {
 import { CreditCardVisual } from "@/features/finance/CreditCardVisual";
 import { DatePicker, FormDatePicker, MonthPicker } from "@/DatePicker";
 import { InstitutionLogo } from "@/InstitutionLogo";
+import { ActionMenu } from "@/shared/ui/ActionMenu";
 import { Button, buttonClassName, IconButton } from "@/shared/ui/Button";
+import { KpiCard } from "@/shared/ui/KpiCard";
 import { CustomSelect } from "@/shared/ui/CustomSelect";
 import { Dialog as Modal } from "@/shared/ui/Dialog";
 import { EmptyState as Empty } from "@/shared/ui/EmptyState";
@@ -83,7 +84,6 @@ import { FormField as Field } from "@/shared/ui/FormField";
 import { Page } from "@/shared/ui/Page";
 import { Tabs } from "@/shared/ui/Tabs";
 import { CATEGORY_ICON_NAMES, categoryIcon } from "@/features/finance/category-icons";
-import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
 import { CategoryAvatar, TransactionDayList, type TransactionDisplay } from "@/features/finance/TransactionList";
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
 import { useAuth } from "@/auth/auth-context";
@@ -160,29 +160,6 @@ const importCategoryFlow = (item: ImportCandidate) => {
   try { return new Decimal(item.amount).isNegative() ? "expense" : "income"; }
   catch { return "expense"; }
 };
-
-function CategoryImage({ image, name }: { image: Blob; name: string }) {
-  const source = useObjectUrl(image);
-  return source ? <img src={source} alt={`Imagem de ${name}`} /> : null;
-}
-
-/** Imagem enviada, ícone escolhido ou — sem os dois — a inicial do nome. */
-function CategoryGlyph({ category }: { category: Pick<Category, "name" | "icon" | "image"> }) {
-  const Icon = categoryIcon(category.icon);
-  if (category.image) return <CategoryImage image={category.image} name={category.name} />;
-  if (Icon) return <Icon aria-hidden="true" />;
-  return <>{category.name.slice(0, 1)}</>;
-}
-
-function categoryIconForeground(color: string) {
-  const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color);
-  if (!match) return "#fff";
-  const channels = match.slice(1).map((value) => Number.parseInt(value, 16) / 255);
-  const [red, green, blue] = channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
-  const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-  return luminance > 0.42 ? "#18181b" : "#fff";
-}
-
 
 function transactionForEntry(state: FinanceState, entry: LedgerEntry, movementKind: EntryKind, actions: Pick<TransactionDisplay, "onEdit" | "onDelete"> = {}): TransactionDisplay {
   const category = state.categories.find((item) => item.id === entry.categoryId);
@@ -296,14 +273,16 @@ export function SummaryPage() {
         {cards.map(({ key, label, value, tone }) => {
           const item = comparison?.[key];
           const delta = item ? new Decimal(item.delta) : undefined;
-          const direction = delta?.isZero() ? "stable" : delta?.isPositive() ? "up" : "down";
-          return <article className={`metric ${tone}`} key={label}>
-            <span>{label}</span>
-            <strong>{money(value)}</strong>
-            {item && comparisonMonth ? <small className={`metric-comparison ${direction}`} aria-label={`Variação de ${money(item.delta)} em relação a ${comparisonMonth}`}>
-              {delta?.isZero() ? `Sem variação vs. ${comparisonMonth}` : `${delta?.isPositive() ? "↑" : "↓"} ${money(delta?.abs().toString() ?? "0")}${item.percentage ? ` (${Number(item.percentage).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)` : ""} vs. ${comparisonMonth}`}
-            </small> : null}
-          </article>;
+          const direction = !delta ? "muted" : delta.isZero() ? "stable" : delta.isPositive() ? "up" : "down";
+          return <KpiCard
+            key={label}
+            label={label}
+            value={money(value)}
+            tone={tone}
+            supporting={item && comparisonMonth ? (delta?.isZero() ? `Sem variação vs. ${comparisonMonth}` : `${delta?.isPositive() ? "↑" : "↓"} ${money(delta?.abs().toString() ?? "0")}${item.percentage ? ` (${Number(item.percentage).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)` : ""} vs. ${comparisonMonth}`) : undefined}
+            supportingTone={direction}
+            supportingLabel={item && comparisonMonth ? `Variação de ${money(item.delta)} em relação a ${comparisonMonth}` : undefined}
+          />;
         })}
       </section>
       <Suspense fallback={<div className="panel page-route-loading">Carregando gráficos…</div>}>
@@ -890,22 +869,19 @@ function CategoriesView() {
           .filter((item) => !item.archivedAt)
           .map((item) => (
             <article className="category-card" key={item.id}>
-              <span className="category-icon" style={{ background: item.color, color: categoryIconForeground(item.color) }}>
-                <CategoryGlyph category={item} />
-              </span>
+              <CategoryAvatar category={item} className="category-icon" />
               <div>
                 <strong>{item.name}</strong>
                 <small>{item.flow === "income" ? "Receita" : "Despesa"} · {item.isDefault ? "Padrão" : "Personalizada"}</small>
               </div>
               <div className="row-actions">
-               <details className="category-menu">
-                 <summary aria-label={`Ações da categoria ${item.name}`}>{"⋮"}</summary>
-                 <div>
-                   <button type="button" aria-label={`Editar categoria ${item.name}`} onClick={() => { setEditing(item); setOpen(true); }}>Editar</button>
-                   <button type="button" className="danger" aria-label={`Arquivar categoria ${item.name}`} onClick={() => archive(item)}>Excluir</button>
-                 </div>
-               </details>
-
+                <ActionMenu
+                  label={`Ações da categoria ${item.name}`}
+                  items={[
+                    { label: "Editar", icon: <Pencil />, onSelect: () => { setEditing(item); setOpen(true); } },
+                    { label: "Excluir", icon: <Trash2 />, tone: "danger", onSelect: () => archive(item) },
+                  ]}
+                />
               </div>
             </article>
           ))}
@@ -983,9 +959,7 @@ function CategoryDialog({ value, onClose, onSave }: { value?: Category; onClose:
         </Field>
         <div className="full category-visual">
           <div className="category-visual-head">
-            <span className="category-icon category-preview" style={{ background: color, color: categoryIconForeground(color) }}>
-              <CategoryGlyph category={{ name: "Categoria", icon: source === "icon" ? icon : "", image: source === "image" ? preview : undefined }} />
-            </span>
+            <CategoryAvatar category={{ name: "Categoria", icon: source === "icon" ? icon : "", image: source === "image" ? preview : undefined, color }} className="category-icon category-preview" />
             <Tabs
               className="category-source"
               label="Origem do ícone"
@@ -1566,10 +1540,10 @@ function ImportConfirmation({ state, selected, creditCardId, onBack, onConfirm }
         </div>
       </div>
       <div className="metric-grid">
-        <div className="metric"><span>Movimentações</span><strong>{selected.length}</strong></div>
-        <div className="metric income"><span>Entradas</span><strong>{money(totals.credits.toString())}</strong></div>
-        <div className="metric expense"><span>Saídas</span><strong>{money(totals.debits.toString())}</strong></div>
-        <div className="metric available"><span>Resultado</span><strong>{money(totals.credits.minus(totals.debits).toString())}</strong></div>
+        <KpiCard label="Movimentações" value={selected.length} />
+        <KpiCard label="Entradas" value={money(totals.credits.toString())} tone="income" />
+        <KpiCard label="Saídas" value={money(totals.debits.toString())} tone="expense" />
+        <KpiCard label="Resultado" value={money(totals.credits.minus(totals.debits).toString())} tone="available" />
       </div>
       <ul className="import-summary-notes">
         <li>Tipos: {kindCounts.map(([label, count]) => `${count} ${label.toLowerCase()}`).join(" · ") || "—"}</li>
@@ -1664,10 +1638,7 @@ export function InstitutionsPage() {
       }
     >
       <section className="metric-grid institution-total-grid" aria-label="Total nas instituições">
-        <article className="metric institutions-total">
-          <span>Total em instituições</span>
-          <strong>{money(totalInBrl)}</strong>
-        </article>
+        <KpiCard label="Total em instituições" value={money(totalInBrl)} tone="invested" className="institutions-total" />
       </section>
       <div className="entity-grid institutions">
         {active.length ? (
@@ -1964,18 +1935,8 @@ export function InvestmentsPage() {
       }
     >
       <section className="metric-grid compact">
-        <article className="metric invested">
-          <span>Valor atual</span>
-          <strong>{money(total)}</strong>
-        </article>
-        <article className="metric income">
-          <span>Proventos</span>
-          <strong>
-            {money(
-              active.reduce((sum, item) => sum.plus(item.dividends), new Decimal(0)).toString(),
-            )}
-          </strong>
-        </article>
+        <KpiCard label="Valor atual" value={money(total)} tone="invested" />
+        <KpiCard label="Proventos" value={money(active.reduce((sum, item) => sum.plus(item.dividends), new Decimal(0)).toString())} tone="income" />
       </section>
       <div className="entity-grid investments">
         {displayGroups.length ? (
@@ -2344,12 +2305,12 @@ export function PlanningPage() {
       }
     >
       <section className="metric-grid compact planning-metrics">
-        <article className="metric income"><span>Entradas previstas</span><strong>{money(plannedIncome.toString())}</strong></article>
-        <article className="metric expense"><span>Saídas previstas</span><strong>{money(plannedExpenses.toString())}</strong></article>
-        <article className="metric available"><span>Saldo ao fim do período</span><strong>{money(projection[projection.length - 1]?.projected ?? projected.toString())}</strong></article>
+        <KpiCard label="Entradas previstas" value={money(plannedIncome.toString())} tone="income" />
+        <KpiCard label="Saídas previstas" value={money(plannedExpenses.toString())} tone="expense" />
+        <KpiCard label="Saldo ao fim do período" value={money(projection[projection.length - 1]?.projected ?? projected.toString())} tone="available" />
       </section>
-      <section className="planning-months" aria-labelledby="planning-months-title">
-        <div className="planning-months-heading">
+      <section className="panel planning-months" aria-labelledby="planning-months-title">
+        <div className="panel-heading planning-months-heading">
           <div>
             <h2 id="planning-months-title">Fluxo de caixa projetado</h2>
             <p>Os meses resumem o impacto previsto; expanda para ver cada lançamento.</p>
@@ -2383,14 +2344,24 @@ export function PlanningPage() {
                     <CategoryAvatar category={category} />
                     <div className="planning-entry-copy"><strong>{item.description}</strong><small><time dateTime={item.date}>{dateLabel(item.date)}</time><span>{item.settled ? "Realizado" : "Planejado"} · {paymentMethodLabel(item.paymentMethod)}</span></small></div>
                     <strong className={`planning-entry-amount ${amountClass}`}>{item.kind === "income" ? "+" : "−"}{money(item.amount)}</strong>
-                    <details className="planning-actions">
-                      <summary aria-label={`Ações para ${item.description}`}><MoreVertical /></summary>
-                      <div>
-                        {!item.settled ? <button type="button" onClick={() => setCompleting(item)}><Check />Marcar como realizado</button> : <button type="button" onClick={() => void commit((draft) => undoOccurrence(draft, item.planId, item.date)).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível desfazer a conclusão.", "error"))}><Undo2 />Desfazer conclusão</button>}
-                        <button type="button" onClick={() => { setEditing(plan); setEditingDate(item.date); setOpen(true); }}><Pencil />Editar</button>
-                        <button type="button" className="danger" onClick={() => setPendingPlanDeletion(item)}><Trash2 />Excluir</button>
-                      </div>
-                    </details>
+                    <ActionMenu
+                      label={`Ações para ${item.description}`}
+                      items={[
+                        {
+                          label: item.settled ? "Desfazer conclusão" : "Marcar como realizado",
+                          icon: item.settled ? <Undo2 /> : <Check />,
+                          onSelect: () => {
+                            if (!item.settled) {
+                              setCompleting(item);
+                              return;
+                            }
+                            void commit((draft) => undoOccurrence(draft, item.planId, item.date)).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível desfazer a conclusão.", "error"));
+                          },
+                        },
+                        { label: "Editar", icon: <Pencil />, onSelect: () => { setEditing(plan); setEditingDate(item.date); setOpen(true); } },
+                        { label: "Excluir", icon: <Trash2 />, tone: "danger", onSelect: () => setPendingPlanDeletion(item) },
+                      ]}
+                    />
                   </article>;
                 })}
               </div>}
@@ -2720,10 +2691,11 @@ export function ProfilePage() {
       <Suspense fallback={<div className="panel page-route-loading">Carregando perfil…</div>}>
         <section className="profile-area">
           {!editing && <>
-            <article className="profile-copy">
+            <article className="panel profile-copy">
               <ProfileStyleSummary profile={state.profile} />
               <Button onClick={() => setEditing(true)}><Sparkles />Editar personagem</Button>
-              <p className="profile-theme-copy">Escolha como o Kreature aparece neste dispositivo.</p>              <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => {
+              <p className="profile-theme-copy">Escolha como o Kreature aparece neste dispositivo.</p>
+              <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => {
                 const previous = state.theme ?? "light";
                 applyTheme(mode);
                 void commit((draft) => { draft.theme = mode; })
@@ -2759,7 +2731,7 @@ function ThemePanel({ mode, onChange }: { mode: ThemeMode; onChange: (mode: Them
     { id: "system", label: "Sistema", description: "Acompanha a preferência do seu dispositivo.", Icon: Monitor },
   ];
   return (
-    <section className="panel theme-panel" aria-labelledby="theme-title">
+    <section className="theme-panel" aria-labelledby="theme-title">
       <div className="panel-heading">
         <div>
           <span className="eyebrow">Aparência</span>

@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { MoreVertical } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import Decimal from "decimal.js";
 import type { Category } from "@/domain/types";
 import { money, transactionDayLabel } from "@/lib/format";
 import { categoryIcon } from "@/features/finance/category-icons";
 import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
+import { ActionMenu, type ActionMenuItem } from "@/shared/ui/ActionMenu";
 
 export type TransactionTone = "income" | "expense" | "neutral";
 
@@ -33,33 +33,20 @@ function categoryIconForeground(color?: string) {
   const [red, green, blue] = match.slice(1).map((value) => Number.parseInt(value, 16) / 255).map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
   return red * 0.2126 + green * 0.7152 + blue * 0.0722 > 0.42 ? "#18181b" : "#fff";
 }
-export function CategoryAvatar({ category }: { category?: TransactionDisplay["category"] }) {
+
+export function CategoryAvatar({ category, className }: { category?: TransactionDisplay["category"]; className?: string }) {
   const Icon = category ? categoryIcon(category.icon) : undefined;
   const background = category?.color ?? "var(--soft)";
-  return <span className="transaction-avatar" style={{ background, color: categoryIconForeground(category?.color) }} aria-hidden={category?.image ? undefined : true}>
+  return <span className={["transaction-avatar", className].filter(Boolean).join(" ")} style={{ background, color: categoryIconForeground(category?.color) }} aria-hidden={category?.image ? undefined : true}>
     {category?.image ? <CategoryImage image={category.image} name={category.name} /> : Icon ? <Icon /> : <span>{category?.name.slice(0, 1) ?? "?"}</span>}
   </span>;
 }
 
 function TransactionActionsMenu({ item }: { item: TransactionDisplay }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
-  }, [open]);
-  if (!item.onEdit && !item.onDelete) return null;
-  return <div className="transaction-menu" ref={root}>
-    <button type="button" className="transaction-menu-trigger" aria-label={`Ações de ${item.description}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreVertical /></button>
-    {open && <div className="transaction-menu-popover" role="menu">
-      {item.onEdit && <button type="button" role="menuitem" onClick={() => { setOpen(false); item.onEdit?.(); }}>Editar</button>}
-      {item.onDelete && <button type="button" role="menuitem" className="danger" onClick={() => { setOpen(false); item.onDelete?.(); }}>Excluir</button>}
-    </div>}
-  </div>;
+  const actions: ActionMenuItem[] = [];
+  if (item.onEdit) actions.push({ label: "Editar", icon: <Pencil />, onSelect: item.onEdit });
+  if (item.onDelete) actions.push({ label: "Excluir", icon: <Trash2 />, tone: "danger", onSelect: item.onDelete });
+  return <ActionMenu label={`Ações de ${item.description}`} items={actions} />;
 }
 
 export function TransactionItem({ item }: { item: TransactionDisplay }) {

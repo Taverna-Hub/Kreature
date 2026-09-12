@@ -10,7 +10,8 @@ import { LaunchesPage } from "./FinancePages";
 
 const openCategoryEditor = (name: string) => {
   fireEvent.click(screen.getByRole("tab", { name: "Categorias" }));
-  fireEvent.click(screen.getByRole("button", { name: `Editar categoria ${name}` }));
+  fireEvent.click(screen.getByRole("button", { name: `Ações da categoria ${name}` }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Editar" }));
 };
 
 describe("ícone da categoria", () => {
