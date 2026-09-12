@@ -26,6 +26,13 @@ export const dateLabel = (value: string) =>
   new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(
     new Date(`${value.slice(0, 10)}T12:00:00Z`),
   );
+/** Rótulo curto para cabeçalhos de lançamentos agrupados por dia. */
+export const transactionDayLabel = (value: string) =>
+  new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" })
+    .format(new Date(`${value.slice(0, 10)}T12:00:00Z`))
+    .replaceAll(".", "")
+    .replace(", ", " - ")
+    .replace(" de ", " ");
 export const monthLabel = (value: string) =>
   new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(
     new Date(`${value}-15T12:00:00Z`),

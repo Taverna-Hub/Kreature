@@ -82,6 +82,7 @@ import { Page } from "@/shared/ui/Page";
 import { Tabs } from "@/shared/ui/Tabs";
 import { CATEGORY_ICON_NAMES, categoryIcon } from "@/features/finance/category-icons";
 import { useObjectUrl } from "@/shared/hooks/useObjectUrl";
+import { CategoryAvatar, TransactionDayList, type TransactionDisplay } from "@/features/finance/TransactionList";
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
 import { useAuth } from "@/auth/auth-context";
 import { applyTheme } from "@/app/theme";
@@ -178,6 +179,31 @@ function categoryIconForeground(color: string) {
   return luminance > 0.42 ? "#18181b" : "#fff";
 }
 
+
+function transactionForEntry(state: FinanceState, entry: LedgerEntry, movementKind: EntryKind, actions: Pick<TransactionDisplay, "onEdit" | "onDelete"> = {}): TransactionDisplay {
+  const category = state.categories.find((item) => item.id === entry.categoryId);
+  const institution = state.institutions.find((item) => item.id === entry.institutionId);
+  const card = state.creditCards.find((item) => item.id === entry.creditCardId);
+  const neutral = ["internal_transfer", "investment_contribution", "investment_withdrawal"].includes(movementKind);
+  const value = neutral ? new Decimal(entry.amount).abs().toString() : entry.amount;
+  return {
+    id: entry.id,
+    date: entry.date,
+    description: cleanTransactionDescription(entry.description),
+    amount: value,
+    currency: entry.currency,
+    category,
+    context: [category?.name ?? "Sem categoria", institution?.name ?? card?.name ?? "Sem instituição", entryKindLabel(movementKind)],
+    tone: neutral ? "neutral" : new Decimal(entry.amount).isPositive() ? "income" : "expense",
+    ...actions,
+  };
+}
+
+function transactionForImport(state: FinanceState, item: ImportCandidate): TransactionDisplay {
+  const category = state.categories.find((value) => value.id === item.categoryId);
+  const amount = signedAmount(item.kind, item.amount, category?.flow);
+  return { id: item.id, date: item.date, description: cleanTransactionDescription(item.description), amount, currency: item.currency, category, context: [category?.name ?? "Sem categoria", entryKindLabel(item.kind)], tone: new Decimal(amount).isPositive() ? "income" : "expense" };
+}
 export function SummaryPage() {
   const { state } = useFinance();
   const date = new Date();
@@ -290,6 +316,7 @@ export function LaunchesPage() {
   const [dialog, setDialog] = useState(false);
   const [pendingDeletion, setPendingDeletion] = useState<LedgerEntry>();
   const [search, setSearch] = useState("");
+  const [quickFilter, setQuickFilter] = useState<"all" | "income" | "expense" | "card">("all");
   const [entryPageSize, setEntryPageSize] = useState(25);
   const [visibleEntryCount, setVisibleEntryCount] = useState(25);
   const movementKinds = new Map(movementsFor(state).map((movement) => [movement.id, movement.kind]));
@@ -300,6 +327,10 @@ export function LaunchesPage() {
       return !group || all.findIndex((candidate) => (candidate.financialMovementId ?? candidate.transferGroupId) === group) === index;
     })
     .filter((entry) => normalizeText(entry.description).includes(normalizeText(search)))
+    .filter((entry) => quickFilter === "all" ||
+      (quickFilter === "card" ? entry.kind === "card_purchase" || entry.paymentMethod === "credit_card" :
+        quickFilter === "income" ? new Decimal(entry.amount).isPositive() :
+          new Decimal(entry.amount).isNegative() && entry.kind !== "card_purchase"))
     .sort((a, b) => b.date.localeCompare(a.date));
   const visibleEntries = entries.slice(0, visibleEntryCount);
   const hasMoreEntries = visibleEntries.length < entries.length;
@@ -404,6 +435,19 @@ export function LaunchesPage() {
               />
             </div>
             <span>{entries.length} lançamento(s)</span>
+          </div>
+          <div className="launches-ledger">
+            <div className="quick-filters" aria-label="Filtrar movimentações">
+              {([ ["all", "Todos"], ["income", "Entradas"], ["expense", "Despesas"], ["card", "Cartão"] ] as const).map(([value, label]) => (
+                <button type="button" key={value} className={quickFilter === value ? "selected" : ""} aria-label={value === "card" ? "Compras no cartão" : undefined} aria-pressed={quickFilter === value} onClick={() => { setQuickFilter(value); setVisibleEntryCount(entryPageSize); }}>{label}</button>
+              ))}
+            </div>
+            <TransactionDayList
+              items={visibleEntries.map((entry) => {
+                const kind = (movementKinds.get(entry.financialMovementId ?? entry.transferGroupId ?? entry.id) ?? entry.kind) as EntryKind;
+                return transactionForEntry(state, entry, kind, { onEdit: entry.transferGroupId ? undefined : () => { setEditing(entry); setDialog(true); }, onDelete: () => setPendingDeletion(entry) });
+              })}
+            />
           </div>
           {entries.length ? (
             <>
@@ -707,6 +751,12 @@ function CardInvoicesPanel({ card }: { card: CreditCard }) {
             <span><strong>{line.description}</strong><small>{dateLabel(line.date)} · {line.installment}/{line.totalInstallments} parcela · {line.transactionKind}{plannedOriginLabel(state, state.cardPurchases.find((item) => item.id === line.purchaseId) ? state.entries.find((entry) => entry.id === state.cardPurchases.find((item) => item.id === line.purchaseId)?.ledgerEntryId)?.plannedOccurrenceKey : undefined)}</small></span>
             <b className={new Decimal(line.amount).isNegative() ? "positive" : "negative"}>{money(line.amount, card.currency)}</b>
           </div>)}</div> : <p className="form-hint">Nenhum lançamento nesta fatura ainda.</p>}
+          <div className="invoice-transaction-list"><TransactionDayList items={invoice.installments.map((line) => {
+            const purchase = state.cardPurchases.find((item) => item.id === line.purchaseId);
+            const category = state.categories.find((item) => item.id === purchase?.categoryId);
+            const amount = new Decimal(line.amount).negated().toString();
+            return { id: `${line.purchaseId}-${line.installment}`, date: line.date, description: `${line.description} · ${line.installment}/${line.totalInstallments}`, amount, currency: card.currency, category, context: [category?.name ?? "Sem categoria", card.name, entryKindLabel("card_purchase")], tone: new Decimal(amount).isPositive() ? "income" : "expense" } satisfies TransactionDisplay;
+          })} /></div>
           {invoice.status !== "paid" && <div className="card-invoice-actions">
             {paying === invoice.key ? <form className="inline-form" onSubmit={(event) => { event.preventDefault(); void commit((draft) => payCardInvoice(draft, { cardId: card.id, invoiceKey: invoice.key, institutionId: paymentAccount, date: paymentDate })).then(() => { setPaying(undefined); notify("Fatura paga."); }).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível quitar a fatura.", "error")); }}>
               <CustomSelect label="Conta para pagar" value={paymentAccount} onChange={setPaymentAccount} items={accounts} required />
@@ -740,6 +790,12 @@ function CreditCardsView() {
 
 function HistoryView({ state }: { state: FinanceState }) {
   const history = monthlyHistory(state);
+  const [selectedMonth, setSelectedMonth] = useState<string>();
+  const selected = history.find((item) => item.month === selectedMonth);
+  if (selected) return <section className="history-detail">
+    <div className="history-detail-heading"><Button variant="secondary" size="sm" onClick={() => setSelectedMonth(undefined)}>Voltar</Button><div><h2>{monthLabel(selected.month)}</h2><p>{selected.entries.length} lançamentos</p></div></div>
+    <TransactionDayList items={selected.entries.map((entry) => transactionForEntry(state, entry, entry.kind))} />
+  </section>;
   return (
     <div className="history-list">
       {history.length ? (
@@ -765,6 +821,7 @@ function HistoryView({ state }: { state: FinanceState }) {
                 </span>
               </span>
             </header>
+              <Button size="sm" variant="secondary" onClick={() => setSelectedMonth(item.month)}>Ver movimentações</Button>
             <details className="history-details">
               <summary><span>Movimentações</span><small>Ver detalhes</small></summary>
               <div className="history-entries">
@@ -836,6 +893,13 @@ function CategoriesView() {
                 <small>{item.flow === "income" ? "Receita" : "Despesa"} · {item.isDefault ? "Padrão" : "Personalizada"}</small>
               </div>
               <div className="row-actions">
+               <details className="category-menu">
+                 <summary aria-label={`Ações da categoria ${item.name}`}>{"⋮"}</summary>
+                 <div>
+                   <button type="button" onClick={() => { setEditing(item); setOpen(true); }}>Editar</button>
+                   <button type="button" className="danger" onClick={() => archive(item)}>Excluir</button>
+                 </div>
+               </details>
                 <IconButton
                   label={`Editar categoria ${item.name}`}
                   onClick={() => {
@@ -980,7 +1044,7 @@ export function ImportView() {
   const [creditCardId, setCreditCardId] = useState("");
   const [busy, setBusy] = useState<string>();
   // A importação acontece em duas etapas: primeiro editar e selecionar, depois confirmar.
-  const [step, setStep] = useState<"review" | "confirm">("review");
+  const [step, setStep] = useState<"upload" | "review" | "confirm">("upload");
   const [batch, setBatch] = useState({ kind: "", categoryId: "", institutionId: "" });
   // Os impedimentos só aparecem depois da primeira tentativa, e somem sozinhos ao serem resolvidos.
   const [showBlockers, setShowBlockers] = useState(false);
@@ -1053,7 +1117,7 @@ export function ImportView() {
     setCreditCardId("");
     setBatch({ kind: "", categoryId: "", institutionId: "" });
     setShowBlockers(false);
-    setStep("review");
+    setStep("upload");
   };
   const read = async (file?: File) => {
     if (!file) return;
@@ -1092,6 +1156,7 @@ export function ImportView() {
         });
       }));
       setWarnings([...result.warnings, ...rateWarnings]);
+      setStep("review");
       setValidation(result.validation);
     } catch (error) {
       setWarnings([error instanceof Error ? error.message : "Falha ao processar arquivo."]);
@@ -1262,7 +1327,10 @@ export function ImportView() {
   };
   return (
     <section className="panel" ref={panel}>
-      {step === "review" && (
+       <ol className="import-steps" aria-label="Etapas da importa??o">
+         {([ ["upload", "1. Arquivo"], ["review", "2. Revisar lançamentos"], ["confirm", "3. Confirmar"] ] as const).map(([value, label]) => <li key={value} className={step === value ? "active" : ""}>{label}</li>)}
+       </ol>
+      {step === "upload" && (
         <div className="upload">
           <FileUp />
           <h2>Importe extrato ou fatura</h2>
@@ -1357,6 +1425,7 @@ export function ImportView() {
                   checked={item.include}
                   onChange={(event) => patchCandidate(index, { include: event.target.checked })}
                 />
+                <CategoryAvatar category={state.categories.find((category) => category.id === item.categoryId)} />
                 <div className="import-fields">
                   <DatePicker
                     value={item.date}
@@ -1506,6 +1575,7 @@ function ImportConfirmation({ state, selected, creditCardId, onBack, onConfirm }
         {duplicates > 0 && <li className="warning-text">{duplicates} movimentação(ões) marcada(s) como possível duplicata continuam selecionadas.</li>}
       </ul>
       <div className="responsive-table import-preview">
+      <div className="import-confirmation-list"><TransactionDayList items={selected.map((item) => transactionForImport(state, item))} /></div>
         <table>
           <thead>
             <tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Instituição</th><th>Valor</th></tr>
