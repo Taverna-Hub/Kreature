@@ -2,8 +2,9 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Decimal from "decimal.js";
-import { institutionBalance, movementsFor, recordEntry } from "@/domain/ledger";
+import { institutionBalance, investmentWithdrawal, movementsFor, recordEntry } from "@/domain/ledger";
 import { buildSummary } from "@/domain/queries";
+import { settleOccurrence, undoOccurrence } from "@/domain/recurrence";
 import { cardInvoices, reconcileImportedInvoicePayment } from "@/domain/cards";
 import { analyzeFile } from "@/lib/importers";
 import { SupabaseFinanceV2Repository, type FinanceV2Api } from "./finance-v2-repository";
@@ -292,6 +293,44 @@ describe("repositório v2", () => {
     expect(JSON.stringify(written?.payload)).toContain("Farmácia");
   });
 
+  it("limpa a ocorrência antes de remover o evento ao desconfirmar um planejamento", async () => {
+    const plannedEvent = {
+      id: "ev-planned", version: 1, kind: "expense" as const, category_id: "cat-food", import_batch_id: null,
+      occurred_at: "2026-03-05T12:00:00Z", source: "planned" as const,
+      sensitive: { description: "Academia", plannedOccurrenceKey: "plan-1:2026-03-05" },
+      postings: [
+        { id: "planned-debit", ledger_account_id: CHECKING_LEDGER, amount: "-89.90", currency_code: "BRL", operation_fx_rate_id: null },
+        { id: "planned-credit", ledger_account_id: SYSTEM_LEDGER, amount: "89.90", currency_code: "BRL", operation_fx_rate_id: null },
+      ],
+      card: null, investment: null, investment_income: null, ...timestamps,
+    };
+    const fixture = fakeGateway(snapshot({
+      planned_occurrences: [{ id: "occ-settled", recurrence_rule_id: "plan-1", scheduled_for: "2026-03-05", status: "settled", settled_event_id: "ev-planned", effective_at: "2026-03-05T12:00:00Z", effective_amount: "89.90", sensitive: {}, ...timestamps }],
+      events: [...snapshot().events, plannedEvent],
+    }));
+    const undoRepository = new SupabaseFinanceV2Repository(fixture.gateway);
+    expect((await undoRepository.load()).entries.some((entry) => entry.financialMovementId === "ev-planned")).toBe(true);
+
+    await undoRepository.transact((draft) => undoOccurrence(draft, "plan-1", "2026-03-05"));
+
+    const occurrenceWrite = fixture.calls.findIndex((call) => call.method === "writePlannedOccurrence");
+    const eventDelete = fixture.calls.findIndex((call) => call.method === "writeCashEvent" && (call.payload as { operation?: string }).operation === "delete");
+    expect(occurrenceWrite).toBeGreaterThanOrEqual(0);
+    expect(eventDelete).toBeGreaterThan(occurrenceWrite);
+  });
+  it("persiste uma confirmação de planejamento somente depois do evento financeiro", async () => {
+    await repository.transact((draft) => {
+      settleOccurrence(draft, "plan-1", "2026-04-05");
+    });
+
+    const eventWrite = calls.findIndex((call) => call.method === "writeCashEvent");
+    const occurrenceWrite = calls.findIndex((call) => call.method === "writePlannedOccurrence");
+    expect(eventWrite).toBeGreaterThanOrEqual(0);
+    expect(occurrenceWrite).toBeGreaterThan(eventWrite);
+    expect(calls[occurrenceWrite]?.payload).toMatchObject({
+      occurrence: { status: "settled", settledEventId: expect.any(String) },
+    });
+  });
   it("converte um resgate em principal e rendimento derivados da posição", async () => {
     await repository.transact((draft) => {
       draft.financialMovements.push({
@@ -325,6 +364,17 @@ describe("repositório v2", () => {
     });
   });
 
+  it("persiste um resgate sem tratá-lo como edição manual da posição", async () => {
+    await repository.transact((draft) => {
+      investmentWithdrawal(draft, {
+        investmentId: "asset-1", toInstitutionId: "acc-broker", amount: "1080", date: "2026-02-02",
+      });
+    });
+
+    expect(calls.find((call) => call.method === "writeInvestmentOperation")?.payload).toMatchObject({
+      operation: "redemption", principalAmount: "642", incomeAmount: "438",
+    });
+  });
   it("recusa reduzir uma posição editando o valor aplicado", async () => {
     await expect(repository.transact((draft) => {
       draft.investments[0].investedAmount = "100";

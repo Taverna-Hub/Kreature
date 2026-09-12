@@ -69,8 +69,20 @@ function importedInvoiceKey(state: FinanceState, card: CreditCard, date: string,
 }
 
 function cycleStart(date: Date, closingDay: number) {
-  const candidate = new Date(date.getFullYear(), date.getMonth(), closingDay);
+  const candidate = dateWithDay(date.getFullYear(), date.getMonth(), closingDay);
   return date.getDate() > closingDay ? addMonths(candidate, 1) : candidate;
+}
+
+function dateWithDay(year: number, month: number, requestedDay: number) {
+  return new Date(year, month, Math.min(requestedDay, new Date(year, month + 1, 0).getDate()));
+}
+
+/** Invoice months name the closing cycle; a due day on/before the closing day falls in the next month. */
+export function invoiceDueDate(card: Pick<CreditCard, "closingDay" | "dueDay">, invoiceMonth: Date) {
+  const dueMonth = card.dueDay <= card.closingDay
+    ? addMonths(new Date(invoiceMonth.getFullYear(), invoiceMonth.getMonth(), 1), 1)
+    : new Date(invoiceMonth.getFullYear(), invoiceMonth.getMonth(), 1);
+  return dateWithDay(dueMonth.getFullYear(), dueMonth.getMonth(), card.dueDay);
 }
 
 export function invoiceKeyFor(card: Pick<CreditCard, "id" | "closingDay">, date: string) {
@@ -85,7 +97,7 @@ export function invoiceSchedule(card: CreditCard, purchase: CardPurchase): Invoi
   const base = importedInstallment ? new Decimal(purchase.amount) : new Decimal(purchase.amount).div(purchase.installments);
   return Array.from({ length: installmentCount }, (_, index) => {
     const close = addMonths(firstClose, index);
-    const due = new Date(close.getFullYear(), close.getMonth(), Math.min(card.dueDay, new Date(close.getFullYear(), close.getMonth() + 1, 0).getDate()));
+    const due = invoiceDueDate(card, close);
     const amount = importedInstallment || index === purchase.installments - 1
       ? new Decimal(purchase.amount).minus(base.mul(purchase.installments - 1))
       : base;
@@ -117,7 +129,7 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
   });
   const invoices = [...groups.entries()].map(([key, installments]) => {
     const [year, month] = key.split(":")[1].split("-").map(Number);
-    const closeDate = new Date(year, month - 1, card.closingDay);
+    const closeDate = dateWithDay(year, month - 1, card.closingDay);
     const dueDate = installments[0]?.dueDate ?? format(closeDate, "yyyy-MM-dd");
     const payment = state.entries.find((entry) => entry.invoiceKey === key && entry.kind === "credit_payment");
     return {
@@ -143,11 +155,11 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
     const nextClose = addMonths(new Date(year, month - 1, 1), 1);
     const nextKey = `${card.id}:${format(nextClose, "yyyy-MM")}`;
     if (!invoices.some((item) => item.key === nextKey)) {
-      const due = new Date(nextClose.getFullYear(), nextClose.getMonth() + 1, Math.min(card.dueDay, new Date(nextClose.getFullYear(), nextClose.getMonth() + 2, 0).getDate()));
+      const due = invoiceDueDate(card, nextClose);
       invoices.push({
         key: nextKey,
         cardId,
-        closingDate: format(new Date(nextClose.getFullYear(), nextClose.getMonth(), card.closingDay), "yyyy-MM-dd"),
+        closingDate: format(dateWithDay(nextClose.getFullYear(), nextClose.getMonth(), card.closingDay), "yyyy-MM-dd"),
         dueDate: format(due, "yyyy-MM-dd"),
         total: "0",
         installments: [],

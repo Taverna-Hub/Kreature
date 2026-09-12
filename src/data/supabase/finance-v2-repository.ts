@@ -302,7 +302,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         createdAt: batch.created_at,
         updatedAt: batch.updated_at,
       })),
-      plannedEntries: this.projectPlans(snapshot),
+      plannedEntries: this.projectPlans(snapshot, entries),
     };
   }
 
@@ -524,10 +524,15 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     return { entries, movements, cardPurchases };
   }
 
-  private projectPlans(snapshot: FinanceV2Snapshot): PlannedEntry[] {
+  private projectPlans(snapshot: FinanceV2Snapshot, entries: LedgerEntry[]): PlannedEntry[] {
     const byRule = new Map<string, RecurrenceException[]>();
     for (const occurrence of snapshot.planned_occurrences) {
       const stored = occurrence.sensitive as Partial<RecurrenceException>;
+      const settledEntryId = occurrence.settled_event_id
+        ? entries.find((entry) => entry.financialMovementId === occurrence.settled_event_id
+          && entry.plannedOccurrenceKey === `${occurrence.recurrence_rule_id}:${occurrence.scheduled_for}`)?.id
+          ?? occurrence.settled_event_id
+        : stored.settledEntryId;
       const exception: RecurrenceException = {
         ...stored,
         date: occurrence.scheduled_for,
@@ -535,7 +540,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         amount: occurrence.effective_amount ? decimal(occurrence.effective_amount) : stored.amount,
         effectiveAmount: occurrence.effective_amount ? decimal(occurrence.effective_amount) : stored.effectiveAmount,
         effectiveDate: occurrence.effective_at ? day(occurrence.effective_at) : stored.effectiveDate,
-        settledEntryId: occurrence.settled_event_id ?? stored.settledEntryId,
+        settledEntryId,
         settledMovementId: occurrence.settled_event_id ?? stored.settledMovementId,
       };
       byRule.set(occurrence.recurrence_rule_id, [...(byRule.get(occurrence.recurrence_rule_id) ?? []), exception]);
@@ -583,9 +588,12 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     await this.syncCards(previous, next);
     await this.syncImports(previous, next);
     await this.syncInvestments(previous, next);
-    await this.syncPlans(previous, next);
+    // A settled occurrence references its financial event. Create rules first, then facts, then occurrences.
+    await this.syncPlans(previous, next, "rules");
     await this.syncClassificationRules(previous, next);
+    await this.syncPlans(previous, next, "before-movements");
     await this.syncMovements(previous, next);
+    await this.syncPlans(previous, next, "after-movements");
   }
 
   private async syncCategories(previous: FinanceState, next: FinanceState) {
@@ -835,6 +843,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         && prior
         && (!new Decimal(prior.quantity).eq(investment.quantity)
           || !new Decimal(prior.investedAmount).eq(investment.investedAmount))
+          && !this.hasNewInvestmentOperation(previous, next, investment.id)
       ) {
         await this.stateOpeningPosition(holding, investment, prior);
       }
@@ -854,6 +863,17 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     }
   }
 
+  /** Position fields are projections. A new ledger operation is their allowed source of change. */
+  private hasNewInvestmentOperation(previous: FinanceState, next: FinanceState, investmentId: string) {
+    const before = new Set(previous.financialMovements.map((movement) => movement.id));
+    return next.financialMovements.some((movement) =>
+      !before.has(movement.id)
+      && movement.investmentId === investmentId
+      && (movement.kind === "investment_contribution"
+        || movement.kind === "investment_withdrawal"
+        || movement.kind === "investment_income"),
+    );
+  }
   /** Restates the position as an explicit operation so nothing is a snapshot. */
   private async stateOpeningPosition(holdingId: string, investment: Investment, prior?: Investment) {
     const quantityDelta = new Decimal(investment.quantity || 0).minus(prior?.quantity ?? 0);
@@ -872,8 +892,12 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     });
   }
 
-  private async syncPlans(previous: FinanceState, next: FinanceState) {
-    if (same(previous.plannedEntries, next.plannedEntries)) return;
+  private async syncPlans(
+    previous: FinanceState,
+    next: FinanceState,
+    phase: "rules" | "before-movements" | "after-movements",
+  ) {
+    if (phase === "rules" && same(previous.plannedEntries, next.plannedEntries)) return;
     const before = new Map(previous.plannedEntries.map((item) => [item.id, item]));
     for (const plan of next.plannedEntries) {
       const prior = before.get(plan.id);
@@ -903,30 +927,39 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         });
       }
 
+      if (phase === "rules") continue;
       const priorExceptions = new Map((prior?.exceptions ?? []).map((item) => [item.date, item]));
       for (const exception of plan.exceptions) {
-        if (same(priorExceptions.get(exception.date), exception)) continue;
-        const { date, amount, effectiveAmount, effectiveDate, settledEntryId, deleted, ...rest } = exception;
+        const priorException = priorExceptions.get(exception.date);
+        if (same(priorException, exception)) continue;
+        const clearingSettlement = Boolean(priorException?.settledEntryId) && !exception.settledEntryId;
+        if (phase === "before-movements" && !clearingSettlement) continue;
+        if (phase === "after-movements" && clearingSettlement) continue;
+        const { date, amount, effectiveAmount, effectiveDate, settledEntryId, settledMovementId, deleted, ...rest } = exception;
         await this.gateway.writePlannedOccurrence({
           occurrence: {
             recurrenceRuleId: ruleId,
             scheduledFor: date,
             status: deleted ? "cancelled" : settledEntryId ? "settled" : "scheduled",
-            settledEventId: settledEntryId,
+            // The relational column references financial_events, never a ledger leg.
+            settledEventId: settledMovementId ?? settledEntryId,
             effectiveAt: effectiveDate ? `${effectiveDate}T12:00:00.000Z` : undefined,
             effectiveAmount: effectiveAmount ?? amount,
             sensitive: { ...rest, deleted },
           },
         });
       }
-      for (const [date] of priorExceptions) {
+      for (const [date, priorException] of priorExceptions) {
         if (plan.exceptions.some((item) => item.date === date)) continue;
+        if (phase === "before-movements" && !priorException.settledEntryId) continue;
+        if (phase === "after-movements" && priorException.settledEntryId) continue;
         await this.gateway.writePlannedOccurrence({
           operation: "delete",
           occurrence: { recurrenceRuleId: ruleId, scheduledFor: date },
         });
       }
     }
+    if (phase !== "rules") return;
     const kept = new Set(next.plannedEntries.map((item) => item.id));
     for (const plan of previous.plannedEntries) {
       if (kept.has(plan.id)) continue;
@@ -1099,6 +1132,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     if (movement.kind === "investment_income") {
       await this.gateway.writeInvestmentOperation({
         operation: "income",
+        eventId: movement.id,
         holdingId,
         cashAccountId: cashLeg?.institutionId,
         reinvest: !cashLeg?.institutionId,
@@ -1116,6 +1150,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     if (movement.kind === "investment_contribution") {
       await this.gateway.writeInvestmentOperation({
         operation: "contribution",
+        eventId: movement.id,
         holdingId,
         cashAccountId: cashLeg.institutionId,
         tradedAt,
@@ -1134,6 +1169,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       : Decimal.min(costBasis, costBasis.mul(amount).div(marketValue));
     await this.gateway.writeInvestmentOperation({
       operation: "redemption",
+      eventId: movement.id,
       holdingId,
       cashAccountId: cashLeg.institutionId,
       tradedAt,

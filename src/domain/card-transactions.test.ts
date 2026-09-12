@@ -56,4 +56,16 @@ describe("transações de cartão", () => {
     expect(state.entries[0].institutionId).toBe(account.id);
     expect(state.cardPurchases).toHaveLength(0);
   });
+  it("separa o mês de fechamento do vencimento", () => {
+    const state = emptyFinanceState();
+    const cycleCard = { ...card("cycle-card"), closingDay: 28, dueDay: 4 };
+    state.creditCards.push(cycleCard);
+    recordCardPurchase(state, { cardId: cycleCard.id, description: "Antes do fechamento", amount: "100", currency: "BRL", date: "2026-08-28", installments: 1 });
+    recordCardPurchase(state, { cardId: cycleCard.id, description: "Após o fechamento", amount: "739", currency: "BRL", date: "2026-08-29", installments: 1 });
+
+    expect(cardInvoices(state, cycleCard.id).map(({ key, closingDate, dueDate, total }) => ({ key, closingDate, dueDate, total }))).toEqual([
+      { key: "cycle-card:2026-08", closingDate: "2026-08-28", dueDate: "2026-09-04", total: "100" },
+      { key: "cycle-card:2026-09", closingDate: "2026-09-28", dueDate: "2026-10-04", total: "739" },
+    ]);
+  });
 });
