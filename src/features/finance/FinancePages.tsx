@@ -2,6 +2,7 @@ import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Check,
+  ChevronDown,
   FileUp,
   Pencil,
   Plus,
@@ -10,6 +11,7 @@ import {
   Sparkles,
   Monitor,
   Moon,
+  MoreVertical,
   LogOut,
   Sun,
   Trash2,
@@ -86,6 +88,8 @@ import { CategoryAvatar, TransactionDayList, type TransactionDisplay } from "@/f
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
 import { useAuth } from "@/auth/auth-context";
 import { applyTheme } from "@/app/theme";
+import { ACCESSORY_OPTIONS, BACKGROUND_OPTIONS, COLOR_OPTIONS, EXPRESSION_OPTIONS } from "@/features/profile/options";
+import type { ProfileConfig } from "@/features/profile/types";
 
 const DashboardCharts = lazy(() => import("@/features/summary/DashboardCharts").then((module) => ({ default: module.DashboardCharts })));
 const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCustomizer").then((module) => ({ default: module.CharacterCustomizer })));
@@ -852,6 +856,7 @@ function CategoriesView() {
   const { state, commit } = useFinance();
   const [editing, setEditing] = useState<Category>();
   const [open, setOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const archive = (category: Category) =>
     void commit((draft) => {
       const used =
@@ -896,29 +901,27 @@ function CategoriesView() {
                <details className="category-menu">
                  <summary aria-label={`Ações da categoria ${item.name}`}>{"⋮"}</summary>
                  <div>
-                   <button type="button" onClick={() => { setEditing(item); setOpen(true); }}>Editar</button>
-                   <button type="button" className="danger" onClick={() => archive(item)}>Excluir</button>
+                   <button type="button" aria-label={`Editar categoria ${item.name}`} onClick={() => { setEditing(item); setOpen(true); }}>Editar</button>
+                   <button type="button" className="danger" aria-label={`Arquivar categoria ${item.name}`} onClick={() => archive(item)}>Excluir</button>
                  </div>
                </details>
-                <IconButton
-                  label={`Editar categoria ${item.name}`}
-                  onClick={() => {
-                    setEditing(item);
-                    setOpen(true);
-                  }}
-                >
-                  <Pencil />
-                </IconButton>
-                <IconButton label={`Arquivar categoria ${item.name}`} onClick={() => archive(item)}>
-                  <Trash2 />
-                </IconButton>
+
               </div>
             </article>
           ))}
       </div>
       <section className="rules-panel" aria-labelledby="learned-rules-title">
-        <div><span className="eyebrow">Automação privada</span><h3 id="learned-rules-title">Regras aprendidas</h3><p>Sincronizadas somente com a sua conta para reconhecer a mesma descrição novamente.</p></div>
-        {state.classificationRules.length ? <div className="rules-list">{state.classificationRules.map((rule) => <div className="rule-row" key={rule.id}><input aria-label={`Descrição da regra ${rule.match}`} defaultValue={rule.match} onBlur={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); const match = normalizeClassificationText(event.target.value); if (!found || !match || match === found.match) return; found.match = match; found.updatedAt = now(); })} /><CustomSelect label={`Categoria da regra ${rule.match}`} value={rule.categoryId} onChange={(next) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); if (found) { found.categoryId = next; found.updatedAt = now(); } })} items={categoryOptions(state.categories, rule.kind)} /><IconButton label={`Remover regra ${rule.match}`} onClick={() => void commit((draft) => { draft.classificationRules = draft.classificationRules.filter((item) => item.id !== rule.id); })}><Trash2 /></IconButton></div>)}</div> : <p className="muted">As regras aparecem quando você corrige uma categoria durante uma importação ou salva um lançamento manual.</p>}
+        <div className="rules-panel-heading">
+          <div>
+            <span className="eyebrow">Automação privada</span>
+            <h3 id="learned-rules-title">Regras aprendidas</h3>
+            <p>Sincronizadas somente com a sua conta para reconhecer a mesma descrição novamente.</p>
+          </div>
+          <Button size="sm" variant="secondary" aria-expanded={rulesOpen} aria-controls="learned-rules-content" onClick={() => setRulesOpen((value) => !value)}>
+            {rulesOpen ? "Ocultar regras" : "Ver regras aprendidas"}
+          </Button>
+        </div>
+        {rulesOpen && <div id="learned-rules-content">{state.classificationRules.length ? <div className="rules-list">{state.classificationRules.map((rule) => <div className="rule-row" key={rule.id}><input aria-label={`Descrição da regra ${rule.match}`} defaultValue={rule.match} onBlur={(event) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); const match = normalizeClassificationText(event.target.value); if (!found || !match || match === found.match) return; found.match = match; found.updatedAt = now(); })} /><CustomSelect label={`Categoria da regra ${rule.match}`} value={rule.categoryId} onChange={(next) => void commit((draft) => { const found = draft.classificationRules.find((item) => item.id === rule.id); if (found) { found.categoryId = next; found.updatedAt = now(); } })} items={categoryOptions(state.categories, rule.kind)} /><IconButton label={`Remover regra ${rule.match}`} onClick={() => void commit((draft) => { draft.classificationRules = draft.classificationRules.filter((item) => item.id !== rule.id); })}><Trash2 /></IconButton></div>)}</div> : <p className="muted">As regras aparecem quando você corrige uma categoria durante uma importação ou salva um lançamento manual.</p>}</div>}
       </section>
       {open && (
         <CategoryDialog
@@ -2305,7 +2308,8 @@ export function PlanningPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PlannedEntry>();
   const [editingDate, setEditingDate] = useState<string>();
-  const [completing, setCompleting] = useState<ReturnType<typeof occurrencesFor>[number]>();
+  const [completing, setCompleting] = useState<ReturnType<typeof occurrencesFor>[number]>();  const [pendingPlanDeletion, setPendingPlanDeletion] = useState<ReturnType<typeof occurrencesFor>[number]>();
+  const [expandedMonths, setExpandedMonths] = useState<string[]>(() => [today().slice(0, 7)]);
   const rangeEnd = new Date();
   rangeEnd.setFullYear(rangeEnd.getFullYear() + 1);
   const occurrences = state.plannedEntries
@@ -2344,66 +2348,56 @@ export function PlanningPage() {
         <article className="metric expense"><span>Saídas previstas</span><strong>{money(plannedExpenses.toString())}</strong></article>
         <article className="metric available"><span>Saldo ao fim do período</span><strong>{money(projection[projection.length - 1]?.projected ?? projected.toString())}</strong></article>
       </section>
-      <section className="panel">
-        <div className="panel-heading">
+      <section className="planning-months" aria-labelledby="planning-months-title">
+        <div className="planning-months-heading">
           <div>
-            <span className="eyebrow">Próximos 12 meses</span>
-            <h2>Fluxo de caixa projetado</h2>
+            <h2 id="planning-months-title">Fluxo de caixa projetado</h2>
+            <p>Os meses resumem o impacto previsto; expanda para ver cada lançamento.</p>
           </div>
         </div>
-        {projection.length ? (
-          <div className="timeline">
-            {projection.map((item) => (
-              <article key={item.key} className={item.settled ? "settled" : ""}>
-                <span className="timeline-date">{dateLabel(item.date)}</span>
-                <div>
-                  <strong>{item.description}</strong>
-                   <small>{item.settled ? "Realizado" : "Planejado"} · {paymentMethodLabel(item.paymentMethod)}</small>
-                </div>
-                <span className={item.kind === "income" ? "positive" : "negative"}>
-                  {item.kind === "income" ? "+" : "−"}
-                  {money(item.amount)}
-                </span>
-                <span className="projected">Saldo {money(item.projected)}</span>
-                <div className="row-actions">
-                  {!item.settled && (
-                    <IconButton
-                      label="Marcar como realizado"
-                      onClick={() => setCompleting(item)}
-                    >
-                      <Check />
-                    </IconButton>
-                  )}
-                  {item.settled && (
-                    <IconButton
-                      label="Desfazer conclusão"
-                      onClick={() => void commit((draft) => undoOccurrence(draft, item.planId, item.date)).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível desfazer a conclusão.", "error"))}
-                    >
-                      <Undo2 />
-                    </IconButton>
-                  )}
-                  <IconButton
-                    label="Editar série"
-                    onClick={() => {
-                      setEditing(state.plannedEntries.find((plan) => plan.id === item.planId));
-                      setEditingDate(item.date);
-                      setOpen(true);
-                    }}
-                  >
-                    <Pencil />
-                  </IconButton>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <Empty
-            title="Nada planejado"
-            description="Cadastre receitas ou despesas futuras, únicas ou recorrentes."
-          />
-        )}
-      </section>
-      {open && (
+        {projection.length ? (() => {
+          const groups = projection.reduce<Map<string, typeof projection>>((result, item) => {
+            const month = item.date.slice(0, 7);
+            const items = result.get(month) ?? [];
+            items.push(item);
+            result.set(month, items);
+            return result;
+          }, new Map());
+          return [...groups.entries()].map(([month, items]) => {
+            const income = items.filter((item) => item.kind === "income").reduce((sum, item) => sum.plus(item.amount), new Decimal(0));
+            const expense = items.filter((item) => item.kind === "expense").reduce((sum, item) => sum.plus(item.amount), new Decimal(0));
+            const balance = items[items.length - 1]?.projected ?? projected.toString();
+            const expanded = expandedMonths.includes(month);
+            return <section className={`planning-month ${expanded ? "expanded" : ""}`} key={month}>
+              <button type="button" className="planning-month-toggle" aria-expanded={expanded} aria-controls={`planning-month-${month}`} onClick={() => setExpandedMonths((current) => current.includes(month) ? current.filter((item) => item !== month) : [...current, month])}>
+                <span className="planning-month-title"><strong>{monthLabel(month).replace(/^./, (letter) => letter.toUpperCase())}</strong><small>{items.length} {items.length === 1 ? "planejamento" : "planejamentos"}</small></span>
+                <span className="planning-month-summary"><span>Entradas <b className="positive">{money(income.toString())}</b></span><span>Saídas <b className="negative">{money(expense.toString())}</b></span><span>Saldo projetado <b>{money(balance)}</b></span></span>
+                <ChevronDown aria-hidden="true" />
+              </button>
+              {expanded && <div id={`planning-month-${month}`} className="planning-month-items">
+                {items.map((item) => {
+                  const category = state.categories.find((entry) => entry.id === item.categoryId);
+                  const plan = state.plannedEntries.find((entry) => entry.id === item.planId);
+                  const amountClass = item.kind === "income" ? "income" : "expense";
+                  return <article className={`planning-entry ${item.settled ? "settled" : ""}`} key={item.key}>
+                    <CategoryAvatar category={category} />
+                    <div className="planning-entry-copy"><strong>{item.description}</strong><small><time dateTime={item.date}>{dateLabel(item.date)}</time><span>{item.settled ? "Realizado" : "Planejado"} · {paymentMethodLabel(item.paymentMethod)}</span></small></div>
+                    <strong className={`planning-entry-amount ${amountClass}`}>{item.kind === "income" ? "+" : "−"}{money(item.amount)}</strong>
+                    <details className="planning-actions">
+                      <summary aria-label={`Ações para ${item.description}`}><MoreVertical /></summary>
+                      <div>
+                        {!item.settled ? <button type="button" onClick={() => setCompleting(item)}><Check />Marcar como realizado</button> : <button type="button" onClick={() => void commit((draft) => undoOccurrence(draft, item.planId, item.date)).catch((error) => notify(error instanceof Error ? error.message : "Não foi possível desfazer a conclusão.", "error"))}><Undo2 />Desfazer conclusão</button>}
+                        <button type="button" onClick={() => { setEditing(plan); setEditingDate(item.date); setOpen(true); }}><Pencil />Editar</button>
+                        <button type="button" className="danger" onClick={() => setPendingPlanDeletion(item)}><Trash2 />Excluir</button>
+                      </div>
+                    </details>
+                  </article>;
+                })}
+              </div>}
+            </section>;
+          });
+        })() : <Empty title="Nada planejado" description="Cadastre receitas ou despesas futuras, únicas ou recorrentes." />}
+      </section>      {open && (
         <PlanningDialog
           value={editing}
           effectiveDate={editingDate}
@@ -2458,7 +2452,10 @@ export function PlanningPage() {
           }
         />
       )}
-      {completing && <CompleteOccurrenceDialog occurrence={completing} onClose={() => setCompleting(undefined)} onConfirm={async (effectiveDate, effectiveAmount) => {
+      {pendingPlanDeletion && <Modal title="Excluir planejamento" onClose={() => setPendingPlanDeletion(undefined)}>
+        <p>Excluir “{pendingPlanDeletion.description}”? As próximas ocorrências desta série serão removidas.</p>
+        <div className="form-actions"><Button type="button" variant="secondary" onClick={() => setPendingPlanDeletion(undefined)}>Cancelar</Button><Button type="button" variant="danger" onClick={() => { void commit((draft) => { draft.plannedEntries = draft.plannedEntries.filter((entry) => entry.id !== pendingPlanDeletion.planId); }); setPendingPlanDeletion(undefined); }}>Excluir planejamento</Button></div>
+      </Modal>}      {completing && <CompleteOccurrenceDialog occurrence={completing} onClose={() => setCompleting(undefined)} onConfirm={async (effectiveDate, effectiveAmount) => {
         try {
           await commit((draft) => settleOccurrence(draft, completing.planId, completing.date, { effectiveDate, effectiveAmount }));
           notify("Planejamento concluído.");
@@ -2722,31 +2719,26 @@ export function ProfilePage() {
     >
       <Suspense fallback={<div className="panel page-route-loading">Carregando perfil…</div>}>
         <section className="profile-area">
-        {!editing && <article className="panel profile-copy">
-          <span className="eyebrow">Kreature atual</span>
-          <h2>Um perfil com a sua cara</h2>
-          <p>Personalize formato, cor, expressão, acessórios, moldura, fundo e identidade. As alterações acompanham sua conta.</p>
-          <Button onClick={() => setEditing(true)}><Sparkles />Editar personagem</Button>
-          <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => {
-            const previous = state.theme ?? "light";
-            applyTheme(mode);
-            void commit((draft) => { draft.theme = mode; })
-              .then(() => notify("Tema atualizado."))
-              .catch((error) => {
-                applyTheme(previous);
-                notify(error instanceof Error ? error.message : "Não foi possível salvar o tema.", "error");
-              });
-          }} />
-          <section className="profile-session" aria-labelledby="session-title">
-            <div>
-              <span className="eyebrow">Sessão</span>
-              <h2 id="session-title">Acesso neste dispositivo</h2>
-              <p>Sair encerra o acesso neste dispositivo. Seus dados permanecem protegidos na sua conta.</p>
-            </div>
-            <Button variant="secondary" onClick={() => setSignOutOpen(true)}><LogOut />Sair</Button>
-          </section>
-        </article>}
-        {editing ? <CharacterCustomizer value={state.profile} onCancel={() => setEditing(false)} onSave={async (profile) => { await commit((draft) => { draft.profile = profile; }); setEditing(false); }} /> : <div className="profile-card-wrap"><ProfileCard config={state.profile} size={168} /></div>}
+          {!editing && <>
+            <article className="profile-copy">
+              <ProfileStyleSummary profile={state.profile} />
+              <Button onClick={() => setEditing(true)}><Sparkles />Editar personagem</Button>
+              <p className="profile-theme-copy">Escolha como o Kreature aparece neste dispositivo.</p>              <ThemePanel mode={state.theme ?? "light"} onChange={(mode) => {
+                const previous = state.theme ?? "light";
+                applyTheme(mode);
+                void commit((draft) => { draft.theme = mode; })
+                  .then(() => notify("Tema atualizado."))
+                  .catch((error) => { applyTheme(previous); notify(error instanceof Error ? error.message : "Não foi possível salvar o tema.", "error"); });
+              }} />
+
+            </article>
+            <div className="profile-card-wrap"><ProfileCard config={state.profile} size={240} /></div>
+            <section className="profile-session" aria-labelledby="session-title">
+              <div><h2 id="session-title">Acesso neste dispositivo</h2><p>Sair encerra o acesso neste dispositivo. Seus dados permanecem protegidos na sua conta.</p></div>
+              <Button variant="secondary" onClick={() => setSignOutOpen(true)}><LogOut />Sair</Button>
+            </section>
+          </>}
+          {editing && <CharacterCustomizer value={state.profile} onCancel={() => setEditing(false)} onSave={async (profile) => { await commit((draft) => { draft.profile = profile; }); setEditing(false); }} />}
         </section>
       </Suspense>
       {signOutOpen && <Modal title="Sair do Kreature" onClose={() => setSignOutOpen(false)}>
@@ -2795,6 +2787,25 @@ function ThemePanel({ mode, onChange }: { mode: ThemeMode; onChange: (mode: Them
   );
 }
 
+function profileOptionLabel<T extends string>(options: ReadonlyArray<{ id: T; label: string }>, value: T) {
+  return options.find((option) => option.id === value)?.label ?? value;
+}
+
+function ProfileStyleSummary({ profile }: { profile: ProfileConfig }) {
+  const accessories = profile.accessories.length
+    ? profile.accessories.map((item) => profileOptionLabel(ACCESSORY_OPTIONS, item)).join(", ")
+    : "Sem acessórios";
+  const details = [
+    ["Cor", profileOptionLabel(COLOR_OPTIONS, profile.color)],
+    ["Expressão", profileOptionLabel(EXPRESSION_OPTIONS, profile.expression)],
+    ["Acessórios", accessories],
+    ["Fundo", profileOptionLabel(BACKGROUND_OPTIONS, profile.background)],
+  ];
+  return <section className="profile-style-summary" aria-labelledby="profile-style-title">
+    <h2 id="profile-style-title">Seu estilo atual</h2>
+    <dl>{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+  </section>;
+}
 const normalizeText = (value: string) =>
   value
     .normalize("NFD")

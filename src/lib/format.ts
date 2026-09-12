@@ -32,7 +32,7 @@ export const transactionDayLabel = (value: string) =>
     .format(new Date(`${value.slice(0, 10)}T12:00:00Z`))
     .replaceAll(".", "")
     .replace(", ", " - ")
-    .replace(" de ", " ");
+    .replace(/(^| de )(\p{L})/gu, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`);
 export const monthLabel = (value: string) =>
   new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(
     new Date(`${value}-15T12:00:00Z`),
