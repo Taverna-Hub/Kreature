@@ -1,12 +1,15 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { motion as motionElement, useReducedMotion } from "framer-motion";
 import { IconButton } from "@/shared/ui/Button";
+import { motion, motionTransition } from "@/shared/motion";
 
 const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const dialogRef = useRef<HTMLElement>(null);
   const openerRef = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     const opener = openerRef.current;
@@ -44,14 +47,14 @@ export function Dialog({ title, children, onClose }: { title: string; children: 
   }, [onClose]);
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <motionElement.div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()} initial={reducedMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={motionTransition(motion.fast)}>
+      <motionElement.section ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title" initial={reducedMotion ? false : { opacity: 0, y: motion.distance, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={motionTransition(motion.normal)}>
         <header>
           <h2 id="dialog-title">{title}</h2>
           <IconButton label="Fechar" variant="ghost" onClick={onClose}><X /></IconButton>
         </header>
         {children}
-      </section>
-    </div>
+      </motionElement.section>
+    </motionElement.div>
   );
 }

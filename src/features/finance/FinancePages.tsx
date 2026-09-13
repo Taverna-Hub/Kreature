@@ -2,6 +2,7 @@ import { businessToday, businessMonth, civilCalendar, calendarDate } from "@/lib
 import { compactMoney, compactPercentage } from "@/lib/format";
 import { selectLaunches, type LaunchPeriod } from "@/domain/launches";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion as motionElement, useReducedMotion } from "framer-motion";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Check,
@@ -90,6 +91,7 @@ import { CATEGORY_ICON_NAMES, categoryIcon } from "@/features/finance/category-i
 import { CategoryAvatar, TransactionDayList, type TransactionDisplay } from "@/features/finance/TransactionList";
 import { useFeedback } from "@/shared/ui/FeedbackProvider";
 import { useAuth } from "@/auth/auth-context";
+import { motion as motionTokens, motionTransition } from "@/shared/motion";
 import { applyTheme } from "@/app/theme";
 import { ACCESSORY_OPTIONS, BACKGROUND_OPTIONS, COLOR_OPTIONS, EXPRESSION_OPTIONS } from "@/features/profile/options";
 import type { ProfileConfig } from "@/features/profile/types";
@@ -273,12 +275,13 @@ export function SummaryPage() {
         )}
       </section>
       <section className="metric-grid" aria-label="Indicadores financeiros">
-        {cards.map(({ key, label, value, tone }) => {
+        {cards.map(({ key, label, value, tone }, index) => {
           const item = comparison?.[key];
           const delta = item ? new Decimal(item.delta) : undefined;
           const direction = !delta ? "muted" : delta.isZero() ? "stable" : delta.isPositive() ? "up" : "down";
           return <KpiCard
             key={label}
+            index={index}
             label={label}
             value={money(value)}
             tone={tone}
@@ -297,6 +300,7 @@ export function SummaryPage() {
 
 export function LaunchesPage() {
   const { state, commit } = useFinance();
+  const reducedMotion = useReducedMotion();
   const [tab, setTab] = useState("entries");
   const [editing, setEditing] = useState<LedgerEntry | null>();
   const [dialog, setDialog] = useState(false);
@@ -396,6 +400,7 @@ export function LaunchesPage() {
           ["cards", "Cartões"],
         ]}
       />
+      <motionElement.div className="tab-panel" key={tab} initial={reducedMotion ? false : { opacity: 0, y: motionTokens.distance }} animate={{ opacity: 1, y: 0 }} transition={motionTransition(motionTokens.fast)}>
       {tab === "entries" && (
         <section className="panel">
           <div className="toolbar launches-toolbar">
@@ -540,6 +545,7 @@ export function LaunchesPage() {
       {tab === "history" && <HistoryView state={state} />} {tab === "import" && <ImportView />}{" "}
       {tab === "categories" && <CategoriesView />}
       {tab === "cards" && <CreditCardsView />}
+      </motionElement.div>
       {dialog && (
         <Modal
           title={editing ? "Editar lançamento" : "Novo lançamento"}
@@ -2281,6 +2287,7 @@ function InvestmentDialog({
 
 export function PlanningPage() {
   const { state, commit } = useFinance();
+  const reducedMotion = useReducedMotion();
   const { notify } = useFeedback();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PlannedEntry>();
@@ -2351,7 +2358,10 @@ export function PlanningPage() {
                 <span className="planning-month-summary"><span>Entradas <b className="positive">{money(income.toString())}</b></span><span>Saídas <b className="negative">{money(expense.toString())}</b></span><span>Saldo projetado <b>{money(balance)}</b></span></span>
                 <ChevronDown aria-hidden="true" />
               </button>
-              {expanded && <div id={`planning-month-${month}`} className="planning-month-items">
+              <AnimatePresence initial={false}>
+                {expanded ? (
+                  <motionElement.div className="planning-month-reveal" initial={reducedMotion ? false : { height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={reducedMotion ? undefined : { height: 0, opacity: 0 }} transition={motionTransition(motionTokens.normal)}>
+                    <div id={`planning-month-${month}`} className="planning-month-items">
                 {items.map((item) => {
                   const category = state.categories.find((entry) => entry.id === item.categoryId);
                   const plan = state.plannedEntries.find((entry) => entry.id === item.planId);
@@ -2380,7 +2390,10 @@ export function PlanningPage() {
                     />
                   </article>;
                 })}
-              </div>}
+                    </div>
+                  </motionElement.div>
+                ) : null}
+              </AnimatePresence>
             </section>;
           });
         })() : <Empty title="Nada planejado" description="Cadastre receitas ou despesas futuras, únicas ou recorrentes." />}

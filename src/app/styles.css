@@ -774,3 +774,106 @@ img, svg { max-width: 100%; }
   .launch-page-size-control { justify-content: space-between; }
   .launch-period-select, .launch-pagination-controls .date-picker { width: 100%; min-width: 0; }
 }
+
+/* Motion: one restrained system for navigation, feedback and data changes. */
+:root {
+  --motion-fast: 140ms;
+  --motion-normal: 220ms;
+  --motion-slow: 320ms;
+  --motion-easing: cubic-bezier(.22, 1, .36, 1);
+  --motion-distance: 6px;
+}
+
+.topbar nav a,
+.button,
+.icon-button,
+.row-actions button:not(.button),
+.action-menu-trigger,
+.quick-filters button,
+.custom-select-trigger,
+.field input,
+.field select,
+.field textarea,
+.date-trigger,
+.theme-choice,
+.choice,
+.icon-choice {
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--motion-easing);
+}
+
+.topbar nav a svg,
+.mobile-nav a svg {
+  transition: transform var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing);
+}
+
+.topbar nav a:active,
+.mobile-nav a:active,
+.button:not(:disabled):active,
+.icon-button:active,
+.action-menu-trigger:active {
+  transform: scale(.98);
+}
+
+.button:not(:disabled):active {
+  box-shadow: none;
+}
+
+.section-tabs button,
+.tabs button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition: color var(--motion-fast) var(--motion-easing), background-color var(--motion-fast) var(--motion-easing);
+}
+
+.section-tabs button.active,
+.tabs button.active {
+  background: transparent;
+  box-shadow: none;
+}
+
+.tab-active-indicator {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: .65rem;
+  background: var(--surface-raised);
+  box-shadow: 0 2px 5px color-mix(in srgb, #000 10%, transparent);
+}
+
+.tab-label { position: relative; }
+
+.quick-filters button {
+  transition: transform var(--motion-fast) var(--motion-easing), background-color var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing);
+}
+
+.quick-filters button:active { transform: scale(.98); }
+
+.category-bar-fill {
+  transform-origin: left center;
+  animation: chart-bar-reveal var(--motion-slow) var(--motion-easing) both;
+  transition: width var(--motion-normal) var(--motion-easing);
+}
+
+@keyframes chart-bar-reveal {
+  from { transform: scaleX(.02); }
+  to { transform: scaleX(1); }
+}
+
+.modal { will-change: transform, opacity; }
+.action-menu-popover { transform-origin: top right; }
+.action-menu-popover[data-placement="above"] { transform-origin: bottom right; }
+.planning-month-reveal { overflow: hidden; }
+
+.mobile-nav a {
+  transition: transform var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing), background-color var(--motion-fast) var(--motion-easing);
+}
+
+.mobile-nav a.active svg { transform: translateY(-1px); }
+.mobile-nav .mobile-add:active { transform: scale(.95); }
+
+@media (prefers-reduced-motion: reduce) {
+  .category-bar-fill { animation: none; transition: none; }
+  .mobile-nav a.active svg { transform: none; }
+}

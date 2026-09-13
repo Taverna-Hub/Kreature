@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MoreVertical } from "lucide-react";
+import { motion as motionElement, useReducedMotion } from "framer-motion";
+import { motion, motionTransition } from "@/shared/motion";
 
 export interface ActionMenuItem {
   label: string;
@@ -13,6 +15,7 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
   const root = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const [above, setAbove] = useState(false);
+  const reducedMotion = useReducedMotion();
   useLayoutEffect(() => {
     if (!open) return;
     const position = () => {
@@ -59,7 +62,7 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
         <MoreVertical aria-hidden="true" />
       </button>
       {open ? (
-        <div ref={popover} className="action-menu-popover" data-placement={above ? "above" : "below"} role="menu">
+        <motionElement.div ref={popover} className="action-menu-popover" data-placement={above ? "above" : "below"} role="menu" initial={reducedMotion ? false : { opacity: 0, y: above ? motion.distance : -motion.distance, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={motionTransition(motion.fast)}>
           {items.map((item, index) => (
             <button
               type="button"
@@ -75,7 +78,7 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
               <span>{item.label}</span>
             </button>
           ))}
-        </div>
+        </motionElement.div>
       ) : null}
     </div>
   );

@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { motion as motionElement, useReducedMotion } from "framer-motion";
+import { enterFromBelow } from "@/shared/motion";
 
 export function Page({
   eyebrow,
@@ -13,8 +15,10 @@ export function Page({
   actions?: ReactNode;
   children: ReactNode;
 }) {
+  const reducedMotion = useReducedMotion();
+
   return (
-    <main className="page">
+    <motionElement.main className="page" {...enterFromBelow(Boolean(reducedMotion))}>
       <header className="page-header">
         <div>
           <span className="eyebrow">{eyebrow}</span>
@@ -24,6 +28,6 @@ export function Page({
         {actions ? <div className="page-actions">{actions}</div> : null}
       </header>
       {children}
-    </main>
+    </motionElement.main>
   );
 }
