@@ -306,6 +306,20 @@ expect(set(["profile", "categories", "accounts", "cards", "events", "investment_
        "the snapshot fans out over every named contract", sorted(snap.keys()))
 expect("sensitive_payload_b64" not in json.dumps(snap), "the snapshot carries no ciphertext")
 expect(len(snap["accounts"]) == 2, "the snapshot lists only this user's accounts", len(snap["accounts"]))
+# Page through the real encrypted/decrypted boundary, including equal timestamps.
+collected = []
+cursor = {}
+while True:
+    page = data(ana, "list-events", limit=2, **cursor)
+    collected.extend(row["id"] for row in page)
+    if len(page) < 2:
+        break
+    cursor = {"before": page[-1]["occurred_at"], "beforeId": page[-1]["id"]}
+    if len(collected) > len(snap["events"]) + 2:
+        raise AssertionError("event cursor did not advance")
+expect(len(collected) == len(set(collected)) == len(snap["events"]), "event cursor has no gaps or duplicates")
+expect(set(collected) == {row["id"] for row in snap["events"]}, "paged events match the snapshot")
+
 
 print()
 if FAILURES:

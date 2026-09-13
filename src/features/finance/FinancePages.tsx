@@ -1,3 +1,6 @@
+import { businessToday, businessMonth, civilCalendar, calendarDate } from "@/lib/temporal";
+import { compactMoney, compactPercentage } from "@/lib/format";
+import { selectLaunches, type LaunchPeriod } from "@/domain/launches";
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -95,7 +98,7 @@ const DashboardCharts = lazy(() => import("@/features/summary/DashboardCharts").
 const CharacterCustomizer = lazy(() => import("@/features/profile/CharacterCustomizer").then((module) => ({ default: module.CharacterCustomizer })));
 const ProfileCard = lazy(() => import("@/features/profile/ProfileCard").then((module) => ({ default: module.ProfileCard })));
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = businessToday;
 const emptyOption = (label: string) => [["", label]] as const;
 const entryFormKindOptions = [
   ["internal_transfer", "Transferência entre minhas contas"],
@@ -187,11 +190,11 @@ function transactionForImport(state: FinanceState, item: ImportCandidate): Trans
 }
 export function SummaryPage() {
   const { state } = useFinance();
-  const date = new Date();
+  const date = civilCalendar(today());
   const [filter, setFilter] = useState<PeriodFilter>({
     mode: "month",
-    month: date.getMonth() + 1,
-    year: date.getFullYear(),
+    month: date.getUTCMonth() + 1,
+    year: date.getUTCFullYear(),
   });
   const summary = useMemo(() => buildSummary(state, filter), [state, filter]);
   const comparison = useMemo(() => buildSummaryComparison(state, filter), [state, filter]);
@@ -279,8 +282,8 @@ export function SummaryPage() {
             label={label}
             value={money(value)}
             tone={tone}
-            supporting={item && comparisonMonth ? (delta?.isZero() ? `Sem variação vs. ${comparisonMonth}` : `${delta?.isPositive() ? "↑" : "↓"} ${money(delta?.abs().toString() ?? "0")}${item.percentage ? ` (${Number(item.percentage).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)` : ""} vs. ${comparisonMonth}`) : undefined}
-            supportingTone={direction}
+            supporting={item && comparisonMonth ? (delta?.isZero() ? `Sem variação vs. ${comparisonMonth}` : `${delta?.isPositive() ? "↑" : "↓"} ${compactMoney(delta?.abs().toString() ?? "0")}${item.percentage ? ` (${compactPercentage(item.percentage)})` : ""} vs. ${comparisonMonth}`) : undefined}
+            supportingTone={direction === "up" || direction === "down" ? ((direction === "up") !== (key === "expenses") ? "favorable" : "unfavorable") : direction}
             supportingLabel={item && comparisonMonth ? `Variação de ${money(item.delta)} em relação a ${comparisonMonth}` : undefined}
           />;
         })}
@@ -300,21 +303,11 @@ export function LaunchesPage() {
   const [pendingDeletion, setPendingDeletion] = useState<LedgerEntry>();
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<"all" | "income" | "expense" | "card">("all");
+  const [period, setPeriod] = useState<LaunchPeriod>({ mode: "current" });
   const [entryPageSize, setEntryPageSize] = useState(25);
   const [visibleEntryCount, setVisibleEntryCount] = useState(25);
   const movementKinds = new Map(movementsFor(state).map((movement) => [movement.id, movement.kind]));
-  const entries = state.entries
-    .filter((entry) => !entry.systemGenerated)
-    .filter((entry, index, all) => {
-      const group = entry.financialMovementId ?? entry.transferGroupId;
-      return !group || all.findIndex((candidate) => (candidate.financialMovementId ?? candidate.transferGroupId) === group) === index;
-    })
-    .filter((entry) => normalizeText(entry.description).includes(normalizeText(search)))
-    .filter((entry) => quickFilter === "all" ||
-      (quickFilter === "card" ? entry.kind === "card_purchase" || entry.paymentMethod === "credit_card" :
-        quickFilter === "income" ? new Decimal(entry.amount).isPositive() :
-          new Decimal(entry.amount).isNegative() && entry.kind !== "card_purchase"))
-    .sort((a, b) => b.date.localeCompare(a.date));
+  const entries = selectLaunches(state.entries, period, search, quickFilter);
   const visibleEntries = entries.slice(0, visibleEntryCount);
   const hasMoreEntries = visibleEntries.length < entries.length;
   const save = async (input: EntryInput & { installments?: number }, toInstitutionId?: string, investmentId?: string) => {
@@ -492,7 +485,30 @@ export function LaunchesPage() {
             <div className="launch-pagination">
               <span>Exibindo {visibleEntries.length} de {entries.length}</span>
               <div className="launch-pagination-controls">
-                <span className="launch-page-size-label">Mostrar</span>
+                <div className="launch-period-control">
+                  <span className="launch-period-label">Período</span>
+                <CustomSelect
+                  className="launch-period-select"
+                  label="Período de movimentações"
+                  value={period.mode}
+                  items={[["current", "Mês atual até hoje"], ["month", "Selecionar mês completo"], ["history", "Histórico até hoje"]]}
+                  onChange={(mode) => {
+                    setPeriod(mode === "month" ? { mode, month: businessMonth() } : { mode: mode as "current" | "history" });
+                    setVisibleEntryCount(entryPageSize);
+                  }}
+                />
+                {period.mode === "month" && (
+                  <MonthPicker
+                    value={period.month}
+                    label="Mês de movimentações"
+                    onChange={(month) => {
+                      setPeriod({ mode: "month", month });
+                      setVisibleEntryCount(entryPageSize);
+                    }}
+                  />
+                )}</div>
+                <div className="launch-page-size-control">
+                  <span className="launch-page-size-label">Mostrar</span>
                 <CustomSelect
                   className="launch-page-size"
                   label="Quantidade de lançamentos exibidos"
@@ -503,7 +519,7 @@ export function LaunchesPage() {
                     setVisibleEntryCount(nextPageSize);
                   }}
                   items={[["25", "25"], ["50", "50"], ["100", "100"], ["200", "200"]]}
-                />
+                /></div>
                 {hasMoreEntries && (
                   <Button
                     type="button"
@@ -1171,7 +1187,7 @@ export function ImportView() {
               currency: item.currency,
               openingBalance: "0",
               exchangeRate: item.exchangeRate ?? "1",
-              exchangeRateAsOf: new Date().toISOString().slice(0, 10),
+              exchangeRateAsOf: today(),
               catalogId: catalog.id,
               logoKey: catalog.logoKey,
               createdAt: timestamp,
@@ -2175,7 +2191,7 @@ function InvestmentDialog({
               exchangeRate: currency === "BRL"
                 ? "1"
                 : decimalInput(data.get("exchangeRate"), value?.exchangeRate ?? "0"),
-              exchangeRateAsOf: currency === "BRL" ? undefined : new Date().toISOString().slice(0, 10),
+              exchangeRateAsOf: currency === "BRL" ? undefined : today(),
               contractedYield: String(data.get("contractedYield") || "") || undefined,
               maturityDate: String(data.get("maturityDate") || "") || undefined,
               quoteStatus: value?.quoteStatus ?? "manual",
@@ -2271,10 +2287,10 @@ export function PlanningPage() {
   const [editingDate, setEditingDate] = useState<string>();
   const [completing, setCompleting] = useState<ReturnType<typeof occurrencesFor>[number]>();  const [pendingPlanDeletion, setPendingPlanDeletion] = useState<ReturnType<typeof occurrencesFor>[number]>();
   const [expandedMonths, setExpandedMonths] = useState<string[]>(() => [today().slice(0, 7)]);
-  const rangeEnd = new Date();
-  rangeEnd.setFullYear(rangeEnd.getFullYear() + 1);
+  const rangeEnd = civilCalendar(today());
+  rangeEnd.setUTCFullYear(rangeEnd.getUTCFullYear() + 1);
   const occurrences = state.plannedEntries
-    .flatMap((plan) => occurrencesFor(plan, today(), rangeEnd.toISOString().slice(0, 10)))
+    .flatMap((plan) => occurrencesFor(plan, today(), calendarDate(rangeEnd)))
     .sort((a, b) => a.date.localeCompare(b.date));
   let projected = state.institutions.reduce(
     (sum, item) => sum.plus(new Decimal(institutionBalance(state, item.id)).mul(item.exchangeRate)),

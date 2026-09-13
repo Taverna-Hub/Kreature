@@ -497,8 +497,21 @@ export class SupabaseFinanceV2Gateway {
     return this.call<FinanceV2Bootstrap>("bootstrap");
   }
 
-  snapshot(options: { limit?: number } = {}) {
-    return this.call<FinanceV2Snapshot>("snapshot", options);
+  async snapshot(options: { limit?: number } = {}) {
+    const limit = Math.max(1, Math.min(Math.trunc(options.limit || 1000), 1000));
+    const snapshot = await this.call<FinanceV2Snapshot>("snapshot", { limit });
+    let page = snapshot.events;
+    const seen = new Set(page.map((event) => event.id));
+    while (page.length === limit) {
+      const last = page[page.length - 1];
+      page = await this.listEvents({ limit, before: last.occurred_at, beforeId: last.id });
+      for (const event of page) {
+        if (seen.has(event.id)) throw new Error("A paginação de movimentações retornou registros repetidos. Atualize a consulta.");
+        seen.add(event.id);
+      }
+      snapshot.events.push(...page);
+    }
+    return snapshot;
   }
 
   async writeProfile(profile: Partial<FinanceV2Bootstrap["profile"]>) {
@@ -605,7 +618,7 @@ export class SupabaseFinanceV2Gateway {
     return this.call<{ batchId: string | null }>("import-batch-exists", { fingerprint });
   }
 
-  listEvents(options: { limit?: number; before?: string; since?: string } = {}) {
+  listEvents(options: { limit?: number; before?: string; beforeId?: string; since?: string } = {}) {
     return this.call<FinanceV2Event[]>("list-events", options);
   }
 

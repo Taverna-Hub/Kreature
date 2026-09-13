@@ -495,3 +495,16 @@ describe("repositório v2", () => {
     ]);
   });
 
+
+
+it("projects late-night events and effective dates in Recife, preserving DATE fields", async () => {
+  const data = snapshot();
+  data.events[1].occurred_at = "2026-09-14T02:30:00Z";
+  data.planned_occurrences[0].effective_at = "2026-09-14T02:30:00Z";
+  data.planned_occurrences[0].scheduled_for = "2026-09-13";
+  const repo = new SupabaseFinanceV2Repository(fakeGateway(data).gateway);
+  const state = await repo.load();
+  expect(state.entries.find(entry => entry.financialMovementId === data.events[1].id)?.date).toBe("2026-09-13");
+  expect(state.plannedEntries[0].exceptions[0].effectiveDate).toBe("2026-09-13");
+  expect(state.plannedEntries[0].exceptions[0].date).toBe("2026-09-13");
+});

@@ -1,3 +1,4 @@
+import { businessDate, civilDateToInstant } from "@/lib/temporal";
 import Decimal from "decimal.js";
 import { emptyFinanceState } from "@/domain/defaults";
 import type {
@@ -33,7 +34,7 @@ const optional = (value: unknown) => (typeof value === "string" && value.length 
 const decimal = (value: unknown, fallback = "0") =>
   value === null || value === undefined ? fallback : new Decimal(String(value)).toString();
 const same = (before: unknown, after: unknown) => JSON.stringify(before) === JSON.stringify(after);
-const day = (value: string) => value.slice(0, 10);
+const day = businessDate;
 
 const ACCOUNT_KIND_BY_TYPE: Record<Institution["type"], FinanceV2Account["kind"]> = {
   bank: "bank",
@@ -943,7 +944,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
             status: deleted ? "cancelled" : settledEntryId ? "settled" : "scheduled",
             // The relational column references financial_events, never a ledger leg.
             settledEventId: settledMovementId ?? settledEntryId,
-            effectiveAt: effectiveDate ? `${effectiveDate}T12:00:00.000Z` : undefined,
+            effectiveAt: effectiveDate ? civilDateToInstant(effectiveDate) : undefined,
             effectiveAmount: effectiveAmount ?? amount,
             sensitive: { ...rest, deleted },
           },
@@ -1047,7 +1048,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         kind: movement.kind === "card_purchase" ? "purchase" : movement.kind === "card_refund" ? "refund" : movement.kind === "card_fee" ? "fee" : "interest",
         amount: new Decimal(movement.amount).abs().toString(),
         installments: purchase?.installments ?? 1,
-        occurredAt: `${movement.date}T12:00:00.000Z`,
+        occurredAt: civilDateToInstant(movement.date),
         firstInvoiceMonth: purchase ? `${purchase.firstInvoiceKey.split(":")[1]}-01` : undefined,
         event: {
           source: movement.source === "reconciliation" ? "manual" : movement.source,
@@ -1074,7 +1075,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
         cardId: movement.creditCardId,
         accountId: payer,
         amount: new Decimal(movement.amount).abs().toString(),
-        occurredAt: `${movement.date}T12:00:00.000Z`,
+        occurredAt: civilDateToInstant(movement.date),
         invoiceMonth: invoiceKey ? `${invoiceKey.slice(invoiceKey.lastIndexOf(":") + 1)}-01` : undefined,
         event: {
           source: movement.source === "reconciliation" ? "manual" : movement.source,
@@ -1104,7 +1105,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       event: {
         kind: movement.kind === "adjustment" ? "adjustment" : movement.kind === "income" ? "income" : movement.kind === "expense" ? "expense" : "internal_transfer",
         source: movement.source === "reconciliation" ? "manual" : movement.source,
-        occurredAt: `${movement.date}T12:00:00.000Z`,
+        occurredAt: civilDateToInstant(movement.date),
         amount: new Decimal(movement.amount).abs().toString(),
         accountId: accountLeg.institutionId,
         counterpartAccountId: counterpart,
@@ -1127,7 +1128,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     if (!investment || !holdingId) throw new Error("Selecione um investimento válido.");
     const cashLeg = legs.find((entry) => entry.institutionId);
     const amount = new Decimal(movement.amount).abs();
-    const tradedAt = `${movement.date}T12:00:00.000Z`;
+    const tradedAt = civilDateToInstant(movement.date);
 
     if (movement.kind === "investment_income") {
       await this.gateway.writeInvestmentOperation({

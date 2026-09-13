@@ -1,3 +1,4 @@
+import { businessDate } from "./temporal";
 import Papa from "papaparse";
 import Decimal from "decimal.js";
 import type { FinanceState, ImportCandidate, InstitutionCatalogId } from "@/domain/types";
@@ -61,8 +62,9 @@ export const parseDate = (value: unknown) => {
   if (match) return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
   const ofx = raw.match(/^(\d{4})(\d{2})(\d{2})/);
   if (ofx) return `${ofx[1]}-${ofx[2]}-${ofx[3]}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
+  return Number.isNaN(parsed.getTime()) ? "" : businessDate(parsed);
 };
 
 const detectInstitution = detectStatementInstitution;

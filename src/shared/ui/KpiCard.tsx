@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export type KpiTone = "income" | "expense" | "available" | "invested";
-export type KpiSupportingTone = "up" | "down" | "stable" | "muted";
+export type KpiSupportingTone = "up" | "down" | "stable" | "muted" | "favorable" | "unfavorable";
 
 export interface KpiCardProps {
   label: ReactNode;

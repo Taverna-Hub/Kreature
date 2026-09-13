@@ -1,18 +1,18 @@
 import Decimal from "decimal.js";
+import { businessDate, MONTH_ABBREVIATIONS } from "@/lib/temporal";
 import type { FinanceState, FinancialMovement, LedgerEntry, PeriodFilter, Summary } from "./types";
 import { entriesForMovement, institutionBalance, movementKindFromEntry, movementsFor } from "./ledger";
 import { endOfMonth, format, subMonths } from "date-fns";
 
 export function matchesPeriod(date: string, filter: PeriodFilter): boolean {
   if (filter.mode === "all") return true;
-  const value = date.slice(0, 10);
+  const value = businessDate(date);
   if (filter.mode === "custom") return (!filter.startDate || value >= filter.startDate) && (!filter.endDate || value <= filter.endDate);
-  const parsed = new Date(`${value}T12:00:00`);
-  if (filter.mode === "year") return parsed.getFullYear() === filter.year;
-  return parsed.getFullYear() === filter.year && parsed.getMonth() + 1 === filter.month;
+  const [year, month] = value.split("-").map(Number);
+  return year === filter.year && (filter.mode === "year" || month === filter.month);
 }
 
-const monthAbbreviations = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"] as const;
+const monthAbbreviations = MONTH_ABBREVIATIONS;
 
 export function previousMonthAbbreviation(filter: PeriodFilter) {
   if (filter.mode !== "month" || !filter.month) return undefined;

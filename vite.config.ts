@@ -8,5 +8,5 @@ export default defineConfig({
   // the Vite-standard VITE_ prefix documented in `.env.example`.
   envPrefix: ["VITE_", "NEXT_PUBLIC_"],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
-  test: { environment: "jsdom", setupFiles: ["./src/test/setup.ts"] },
+  test: { include: ["src/**/*.test.{ts,tsx}"], environment: "jsdom", setupFiles: ["./src/test/setup.ts"] },
 });

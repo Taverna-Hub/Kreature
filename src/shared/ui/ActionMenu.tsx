@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MoreVertical } from "lucide-react";
 
 export interface ActionMenuItem {
@@ -11,6 +11,22 @@ export interface ActionMenuItem {
 export function ActionMenu({ label, items }: { label: string; items: ActionMenuItem[] }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const popover = useRef<HTMLDivElement>(null);
+  const [above, setAbove] = useState(false);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const position = () => {
+      const trigger = root.current?.getBoundingClientRect();
+      const menu = popover.current?.getBoundingClientRect();
+      const nav = document.querySelector(".mobile-nav")?.getBoundingClientRect();
+      const bottom = nav?.height ? nav.top - 8 : window.innerHeight - 8;
+      if (trigger && menu) setAbove(trigger.bottom + menu.height + 4 > bottom);
+    };
+    position();
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    return () => { window.removeEventListener("resize", position); window.removeEventListener("scroll", position, true); };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,7 +59,7 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
         <MoreVertical aria-hidden="true" />
       </button>
       {open ? (
-        <div className="action-menu-popover" role="menu">
+        <div ref={popover} className="action-menu-popover" data-placement={above ? "above" : "below"} role="menu">
           {items.map((item, index) => (
             <button
               type="button"

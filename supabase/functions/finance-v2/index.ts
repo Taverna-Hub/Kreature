@@ -470,6 +470,7 @@ async function listEvents(client: SupabaseClient, userId: string, body: Json) {
   const rows = await callRpc<Json[]>(client, "list_financial_events", {
     p_limit: typeof body.limit === "number" ? body.limit : 1000,
     p_before: typeof body.before === "string" ? body.before : null,
+    p_before_id: typeof body.beforeId === "string" ? body.beforeId : null,
     p_since: typeof body.since === "string" ? body.since : null,
   });
   return openList(userId, PURPOSE.event, rows);

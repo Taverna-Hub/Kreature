@@ -661,6 +661,8 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+\ir finance_v2_temporal.sql
+
 -- Removing an account has to remove everything it owns, in one transaction.
 -- This is the shape the destructive cutover depends on.
 do $$

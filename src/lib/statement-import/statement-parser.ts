@@ -1,3 +1,4 @@
+import { businessToday } from "../temporal";
 import Decimal from "decimal.js";
 import type {
   StatementMetadata,
@@ -62,7 +63,7 @@ function parseDate(raw: string, metadata: StatementMetadata): string | undefined
     const startMonth = Number(metadata.periodStart.slice(5, 7));
     year = startYear === endYear || month < startMonth ? endYear : startYear;
   }
-  if (!year) year = new Date().getFullYear();
+  if (!year) year = Number(businessToday().slice(0, 4));
   const candidate = new Date(Date.UTC(year, month - 1, day));
   if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month - 1 || candidate.getUTCDate() !== day) return undefined;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;

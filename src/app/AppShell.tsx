@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   CalendarDays,
@@ -44,6 +44,23 @@ export function LoadingScreen() {
 }
 
 export function AppShell() {
+  const shell = useRef<HTMLDivElement>(null);
+  const mobileNav = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = mobileNav.current;
+    if (!nav) return;
+    const measure = () => {
+      const rect = nav.getBoundingClientRect();
+      const top = Math.min(rect.top, ...Array.from(nav.children, (child) => child.getBoundingClientRect().top));
+      shell.current?.style.setProperty("--mobile-nav-occupied", `${rect.height ? rect.bottom - top : 0}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(nav);
+    window.addEventListener("resize", measure);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", measure); };
+  }, []);
+
   const navigate = useNavigate();
   const path = useRouterState({ select: (state) => state.location.pathname });
   const { state, loading, error } = useFinance();
@@ -68,7 +85,7 @@ export function AppShell() {
       : path === to || path.startsWith(`${to}/`);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" ref={shell}>
       <header className="topbar">
         <Link to="/resumo" className="brand">
           <span className="brand-avatar" aria-label="Logo Kreature">
@@ -97,7 +114,7 @@ export function AppShell() {
         </nav>
       </header>
 
-      <nav className="mobile-nav" aria-label="Navegação móvel">
+      <nav ref={mobileNav} className="mobile-nav" aria-label="Navegação móvel">
         <Link to="/resumo" className={isCurrentRoute("/resumo") ? "active" : ""} aria-current={isCurrentRoute("/resumo") ? "page" : undefined} aria-label="Resumo">
           <CircleDollarSign />
           <span>Resumo</span>

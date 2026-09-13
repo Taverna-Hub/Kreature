@@ -9,7 +9,7 @@ export function ProfileCard({ config, size = 240 }: { config: ProfileConfig; siz
       className="profile-card"
       style={{ backgroundColor: `color-mix(in oklab, ${color.main} 10%, var(--surface))` }}
     >
-      <div className="profile-card-mascot">
+      <div className="profile-card-mascot" style={{ minHeight: size + 16 }}>
         <Mascot config={config} size={size} />
       </div>
       <div className="profile-card-copy">

@@ -13,3 +13,5 @@ extratos
 docs
 .env*
 consolidate-nubank-csvs.mjs
+/playwright-report/
+/test-results/

@@ -1,3 +1,4 @@
+import { businessToday } from "@/lib/temporal";
 import { addDays, addMonths, addWeeks, addYears, formatISO, parseISO, subDays } from "date-fns";
 import type { FinanceState, PaymentMethod, PlannedEntry, RecurrenceException } from "./types";
 import { recordEntry, removeEntry } from "./ledger";
@@ -105,7 +106,7 @@ export function settleOccurrence(
   const effectiveDate = paymentMethod === "credit_card"
     ? occurrence.date
     : realization.effectiveDate ?? occurrence.date;
-  if (effectiveDate > day(new Date())) throw new Error("A data efetiva não pode estar no futuro.");
+  if (effectiveDate > businessToday()) throw new Error("A data efetiva não pode estar no futuro.");
   const effectiveAmount = paymentMethod === "credit_card"
     ? occurrence.amount
     : realization.effectiveAmount ?? occurrence.amount;

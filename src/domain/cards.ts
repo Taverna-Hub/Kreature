@@ -1,3 +1,4 @@
+import { businessToday } from "@/lib/temporal";
 import Decimal from "decimal.js";
 import { addMonths, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { now, uid } from "./defaults";
@@ -142,7 +143,7 @@ export function cardInvoices(state: FinanceState, cardId: string): CardInvoice[]
       paidEntryId: payment?.id,
       paymentEntryId: payment?.id,
       paidAt: payment?.date,
-      status: payment ? "paid" as const : dueDate < new Date().toISOString().slice(0, 10) ? "overdue" as const : "open" as const,
+      status: payment ? "paid" as const : dueDate < businessToday() ? "overdue" as const : "open" as const,
     };
   }).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 

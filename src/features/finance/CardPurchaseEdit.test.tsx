@@ -9,6 +9,8 @@ import { FeedbackProvider } from "@/shared/ui/FeedbackProvider";
 const financeMock = vi.hoisted(() => ({ useFinance: vi.fn() }));
 vi.mock("@/data/finance-context", () => ({ useFinance: financeMock.useFinance }));
 
+vi.mock("@/lib/temporal", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/temporal")>(), businessToday: () => "2026-08-31" }));
+
 import { LaunchesPage } from "./FinancePages";
 
 describe("edição de compra do cartão", () => {
