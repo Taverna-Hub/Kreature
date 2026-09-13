@@ -12,7 +12,6 @@ select
   'light'
 from auth.users as user_row
 on conflict (user_id) do nothing;
-
 insert into public.categories (user_id, name, icon, color, flow, is_default)
 select user_row.id, seed.name, seed.icon, seed.color, seed.flow::public.category_flow, true
 from auth.users as user_row

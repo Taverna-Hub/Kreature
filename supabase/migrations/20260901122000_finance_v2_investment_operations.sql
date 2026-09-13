@@ -5,18 +5,15 @@
 
 alter table app_private.investment_cash_details
   add column if not exists income_amount numeric(38, 18) not null default 0 check (income_amount >= 0);
-
 alter table app_private.investment_cash_details
   drop constraint if exists investment_cash_details_principal_amount_check;
 alter table app_private.investment_cash_details
   add constraint investment_cash_details_principal_amount_check check (principal_amount >= 0);
-
 -- Income, expense and clearing legs are per user and per currency, not per
 -- entity, so they are created once and reused.
 create unique index if not exists ledger_accounts_system_unique_idx
   on app_private.ledger_accounts (user_id, kind, currency_code)
   where kind in ('income', 'expense', 'equity', 'fx_clearing');
-
 create or replace function app_private.system_ledger_account(
   p_user uuid,
   p_kind app_private.ledger_account_kind,
@@ -53,7 +50,6 @@ begin
   return found_id;
 end;
 $$;
-
 -- Walks a holding's operations in order and replays average cost. Passing a
 -- cursor answers "what was the position immediately before this operation",
 -- which is what a sale needs to know to price the basis it is removing.
@@ -131,7 +127,6 @@ begin
   return next;
 end;
 $$;
-
 -- One call, one transaction: event, postings, operation, details and charges.
 -- A partial investment operation is never observable.
 create or replace function api.write_investment_operation(p_command jsonb)
@@ -502,7 +497,6 @@ begin
   );
 end;
 $$;
-
 -- Deleting the event cascades to the operation, its details and its postings,
 -- so the replayed position corrects itself with no compensating snapshot.
 create or replace function api.delete_investment_operation(p_event_id uuid)
@@ -539,7 +533,6 @@ begin
   return removed;
 end;
 $$;
-
 -- Everything a portfolio screen needs, replayed from the operations.
 create or replace function api.investment_positions()
 returns table (
@@ -628,7 +621,6 @@ as $$
   left join custody_total on custody_total.ledger_account_id = replayed.ledger_account_id
   left join latest_price on latest_price.asset_id = replayed.asset_id;
 $$;
-
 -- A custody transfer needs the same asset held in a second custody account, so
 -- a holding has to be creatable independently of the asset it tracks.
 create or replace function api.write_investment_holding(p_command jsonb)
@@ -683,7 +675,6 @@ begin
   return requested;
 end;
 $$;
-
 create or replace function api.write_asset_quote(p_command jsonb)
 returns uuid
 language plpgsql
@@ -713,20 +704,16 @@ begin
   return quote_id;
 end;
 $$;
-
 drop view if exists api.portfolio_positions;
-
 grant insert, update, delete on app_private.investment_transactions,
   app_private.investment_trade_details, app_private.investment_cash_details,
   app_private.investment_charges, app_private.investment_transfers,
   app_private.investment_income_events, app_private.manual_asset_quotes,
   app_private.card_transactions, app_private.operation_fx_rates
 to authenticated;
-
 grant select on catalog.asset_price_series, catalog.market_observations,
   catalog.market_instruments, catalog.currencies, catalog.asset_types,
   catalog.indexers to authenticated;
-
 do $$
 declare routine text;
 begin
@@ -740,7 +727,6 @@ begin
   end loop;
 end;
 $$;
-
 revoke execute on function app_private.system_ledger_account(uuid, app_private.ledger_account_kind, text) from public, anon;
 revoke execute on function app_private.investment_position_at(uuid, uuid, timestamptz, uuid) from public, anon;
 grant execute on function app_private.system_ledger_account(uuid, app_private.ledger_account_kind, text) to authenticated;

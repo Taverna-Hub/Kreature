@@ -54,7 +54,6 @@ as $$
     ), '[]'::jsonb)
   );
 $$;
-
 revoke all on function api.finance_bootstrap() from public, anon;
 grant execute on function api.finance_bootstrap() to authenticated;
 grant select on app_private.profiles, app_private.categories to authenticated;

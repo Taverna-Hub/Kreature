@@ -1,6 +1,5 @@
 -- Reuses a statement debit as the invoice settlement instead of creating a second debit.
 alter function api.pay_card_invoice(jsonb) rename to pay_card_invoice_legacy;
-
 create function api.pay_card_invoice(p_command jsonb)
 returns uuid
 language plpgsql security invoker set search_path = '' as $$
@@ -37,6 +36,5 @@ begin
   return settled_event_id;
 end
 $$;
-
 revoke all on function api.pay_card_invoice(jsonb) from public, anon;
 grant execute on function api.pay_card_invoice(jsonb) to authenticated;

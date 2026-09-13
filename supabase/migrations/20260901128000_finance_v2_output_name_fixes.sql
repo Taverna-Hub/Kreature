@@ -83,7 +83,6 @@ begin
   return query select requested_id, persisted;
 end;
 $$;
-
 create or replace function api.write_investment_asset(p_command jsonb)
 returns table (asset_id uuid, holding_id uuid, asset_version integer)
 language plpgsql security invoker set search_path = '' as $$
@@ -153,7 +152,6 @@ begin
   return query select requested_id, requested_holding, persisted;
 end;
 $$;
-
 do $$
 declare routine text;
 begin
@@ -163,7 +161,6 @@ begin
   end loop;
 end;
 $$;
-
 -- The classification writer discarded the caller's id and let the database mint
 -- its own, so the associated data the Edge Function had already bound to the
 -- caller's id could never open the row again.
@@ -216,6 +213,5 @@ begin
   return query select requested;
 end;
 $$;
-
 revoke all on function api.write_classification_rule(jsonb) from public, anon;
 grant execute on function api.write_classification_rule(jsonb) to authenticated;

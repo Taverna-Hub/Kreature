@@ -6,7 +6,6 @@ on conflict (kind, legal_name) do update
   set trade_name = excluded.trade_name,
       active = excluded.active,
       updated_at = now();
-
 insert into catalog.financial_institutions (
   organization_id,
   slug,

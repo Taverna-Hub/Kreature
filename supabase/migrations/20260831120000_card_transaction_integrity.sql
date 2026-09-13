@@ -5,23 +5,18 @@
 alter table public.ledger_entries
   add column if not exists payment_method text,
   add column if not exists system_generated boolean not null default false;
-
 alter table public.financial_movements
   add column if not exists payment_method text,
   add column if not exists system_generated boolean not null default false;
-
 alter table public.ledger_entries
   drop constraint if exists ledger_entries_payment_method_check,
   drop constraint if exists ledger_entries_card_payment_consistency;
-
 alter table public.financial_movements
   drop constraint if exists financial_movements_payment_method_check,
   drop constraint if exists financial_movements_card_payment_consistency;
-
 alter table public.ledger_entries
   drop constraint if exists ledger_entries_financial_movement_id_fkey,
   drop constraint if exists ledger_entries_financial_movement_user_fkey;
-
 -- Existing card purchases are the authoritative source for repairing the
 -- relationship when a previous client save persisted only part of the data.
 update public.ledger_entries entry
@@ -31,12 +26,10 @@ set credit_card_id = purchase.card_id,
 from public.card_purchases purchase
 where purchase.ledger_entry_id = entry.id
   and purchase.user_id = entry.user_id;
-
 update public.ledger_entries
 set payment_method = 'credit_card'
 where kind::text = 'card_purchase'
   and credit_card_id is not null;
-
 update public.financial_movements movement
 set credit_card_id = entry.credit_card_id,
     payment_method = 'credit_card'
@@ -44,7 +37,6 @@ from public.ledger_entries entry
 where entry.financial_movement_id = movement.id
   and entry.user_id = movement.user_id
   and entry.kind::text = 'card_purchase';
-
 do $$
 begin
   if exists (
@@ -89,13 +81,11 @@ begin
   end if;
 end;
 $$;
-
 alter table public.ledger_entries
   add constraint ledger_entries_financial_movement_user_fkey
     foreign key (financial_movement_id, user_id)
     references public.financial_movements(id, user_id)
     on delete cascade;
-
 alter table public.ledger_entries
   add constraint ledger_entries_payment_method_check
     check (payment_method is null or payment_method in ('pix', 'automatic_debit', 'credit_card')),
@@ -104,7 +94,6 @@ alter table public.ledger_entries
       (kind::text <> 'card_purchase' and payment_method is distinct from 'credit_card')
       or (kind::text = 'card_purchase' and payment_method = 'credit_card' and credit_card_id is not null and account_id is null)
     );
-
 alter table public.financial_movements
   add constraint financial_movements_payment_method_check
     check (payment_method is null or payment_method in ('pix', 'automatic_debit', 'credit_card')),
@@ -113,19 +102,15 @@ alter table public.financial_movements
       (kind::text <> 'card_purchase' and payment_method is distinct from 'credit_card')
       or (kind::text = 'card_purchase' and payment_method = 'credit_card' and credit_card_id is not null)
     );
-
 create unique index if not exists ledger_entries_planned_occurrence_unique_idx
   on public.ledger_entries (user_id, planned_occurrence_key)
   where planned_occurrence_key is not null;
-
 create index if not exists ledger_entries_credit_card_idx
   on public.ledger_entries (user_id, credit_card_id, occurred_on desc)
   where credit_card_id is not null;
-
 create index if not exists financial_movements_credit_card_idx
   on public.financial_movements (user_id, credit_card_id, occurred_on desc)
   where credit_card_id is not null;
-
 create or replace function public.persist_card_transaction(
   p_entry jsonb,
   p_movement jsonb,
@@ -269,5 +254,4 @@ begin
   end if;
 end;
 $$;
-
 grant execute on function public.persist_card_transaction(jsonb, jsonb, jsonb, uuid, uuid, uuid) to authenticated;

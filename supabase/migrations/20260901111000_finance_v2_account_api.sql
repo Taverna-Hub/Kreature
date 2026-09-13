@@ -43,7 +43,6 @@ begin
   return query select requested_id, persisted_version;
 end;
 $$;
-
 create or replace function api.list_accounts()
 returns table (id uuid, version integer, institution_id uuid, ledger_account_id uuid, kind app_private.account_kind, currency_code text, sensitive_payload_b64 text, encryption_nonce_b64 text, encryption_key_version smallint, archived_at timestamptz, created_at timestamptz, updated_at timestamptz)
 language sql security invoker set search_path = '' stable as $$
@@ -52,7 +51,6 @@ language sql security invoker set search_path = '' stable as $$
          account.archived_at, account.created_at, account.updated_at
   from app_private.accounts account where account.user_id = (select auth.uid()) order by account.created_at;
 $$;
-
 revoke all on function api.write_account(jsonb), api.list_accounts() from public, anon;
 grant execute on function api.write_account(jsonb), api.list_accounts() to authenticated;
 grant select, insert, update, delete on app_private.accounts, app_private.ledger_accounts to authenticated;

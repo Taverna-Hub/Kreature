@@ -3,7 +3,6 @@ alter type public.entry_kind add value if not exists 'internal_transfer';
 alter type public.entry_kind add value if not exists 'investment_contribution';
 alter type public.entry_kind add value if not exists 'investment_withdrawal';
 alter type public.entry_kind add value if not exists 'investment_income';
-
 do $$ begin
   create type public.financial_movement_kind as enum (
     'income', 'expense', 'internal_transfer', 'investment_contribution',
@@ -12,7 +11,6 @@ do $$ begin
   );
 exception when duplicate_object then null;
 end $$;
-
 create table if not exists public.financial_movements (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -39,13 +37,11 @@ create table if not exists public.financial_movements (
   foreign key (investment_id, user_id) references public.investments(id, user_id) on delete set null,
   foreign key (credit_card_id, user_id) references public.credit_cards(id, user_id) on delete set null
 );
-
 alter table public.ledger_entries add column if not exists financial_movement_id uuid;
 alter table public.ledger_entries add column if not exists pending_reconciliation boolean not null default false;
 alter table public.ledger_entries drop constraint if exists ledger_entries_financial_movement_id_fkey;
 alter table public.ledger_entries add constraint ledger_entries_financial_movement_id_fkey
   foreign key (financial_movement_id) references public.financial_movements(id) on delete cascade;
-
 -- Preserve all existing rows. A prior transfer group becomes one movement;
 -- old one-sided investments intentionally remain flagged instead of receiving
 -- an invented destination leg.
@@ -73,15 +69,12 @@ from public.ledger_entries e
 where e.financial_movement_id is null
 order by coalesce(e.transfer_group_id, e.id), e.created_at
 on conflict (id) do nothing;
-
 update public.ledger_entries
 set financial_movement_id = coalesce(transfer_group_id, id)
 where financial_movement_id is null;
-
 create index if not exists financial_movements_user_date_idx on public.financial_movements (user_id, occurred_on desc, created_at desc);
 create index if not exists financial_movements_investment_idx on public.financial_movements (investment_id, occurred_on desc) where investment_id is not null;
 create index if not exists ledger_entries_financial_movement_idx on public.ledger_entries (financial_movement_id);
-
 alter table public.financial_movements enable row level security;
 create policy financial_movements_select_own on public.financial_movements for select to authenticated using (auth.uid() = user_id);
 create policy financial_movements_insert_own on public.financial_movements for insert to authenticated with check (auth.uid() = user_id);

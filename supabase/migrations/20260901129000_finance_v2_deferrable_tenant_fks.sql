@@ -28,7 +28,6 @@ begin
   end loop;
 end;
 $$;
-
 do $$
 declare remaining integer;
 begin

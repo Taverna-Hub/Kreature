@@ -5,10 +5,8 @@
 create schema if not exists catalog;
 create schema if not exists app_private;
 create schema if not exists api;
-
 revoke all on schema catalog, app_private, api from public, anon, authenticated;
 grant usage on schema api to authenticated;
-
 alter default privileges in schema catalog revoke all on tables from public, anon, authenticated;
 alter default privileges in schema catalog revoke all on sequences from public, anon, authenticated;
 alter default privileges in schema catalog revoke execute on functions from public, anon, authenticated;
@@ -17,7 +15,6 @@ alter default privileges in schema app_private revoke all on sequences from publ
 alter default privileges in schema app_private revoke execute on functions from public, anon, authenticated;
 alter default privileges in schema api revoke all on tables from public, anon, authenticated;
 alter default privileges in schema api revoke execute on functions from public, anon, authenticated;
-
 create type catalog.organization_kind as enum ('financial_institution', 'issuer', 'fund_administrator', 'exchange', 'other');
 create type catalog.market_series_kind as enum ('asset_price', 'fx', 'index');
 create type app_private.account_kind as enum ('bank', 'brokerage', 'wallet', 'exchange', 'crypto_wallet', 'other');
@@ -31,7 +28,6 @@ create type app_private.investment_charge_kind as enum ('brokerage', 'exchange_f
 create type app_private.corporate_action_kind as enum ('split', 'reverse_split', 'bonus', 'amortization', 'incorporation', 'merger', 'other');
 create type app_private.planned_occurrence_status as enum ('scheduled', 'cancelled', 'settled');
 create type app_private.encryption_purpose as enum ('account', 'card', 'event', 'investment', 'classification', 'import', 'audit', 'plan');
-
 create table catalog.currencies (
   code text primary key check (code ~ '^[A-Z0-9]{3,12}$'),
   name text not null,
@@ -41,14 +37,12 @@ create table catalog.currencies (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
-
 create table catalog.asset_types (
   code text primary key check (code ~ '^[a-z0-9_]{2,48}$'),
   name text not null,
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
-
 create table catalog.organizations (
   id uuid primary key default gen_random_uuid(),
   kind catalog.organization_kind not null,
@@ -62,7 +56,6 @@ create table catalog.organizations (
   unique nulls not distinct (kind, legal_name)
 );
 create unique index organizations_cnpj_unique_idx on catalog.organizations (cnpj) where cnpj is not null;
-
 create table catalog.financial_institutions (
   organization_id uuid primary key references catalog.organizations(id) on delete cascade,
   slug text not null unique check (slug ~ '^[a-z0-9-]+$'),
@@ -72,7 +65,6 @@ create table catalog.financial_institutions (
   secondary_color text check (secondary_color is null or secondary_color ~ '^#[0-9A-Fa-f]{6}$'),
   foreground_color text check (foreground_color is null or foreground_color ~ '^#[0-9A-Fa-f]{6}$')
 );
-
 create table catalog.indexers (
   id uuid primary key default gen_random_uuid(),
   code text not null unique check (code ~ '^[A-Z0-9_]{2,32}$'),
@@ -81,7 +73,6 @@ create table catalog.indexers (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
-
 create table catalog.market_instruments (
   id uuid primary key default gen_random_uuid(),
   asset_type_code text not null references catalog.asset_types(code),
@@ -98,7 +89,6 @@ create table catalog.market_instruments (
   unique (symbol, venue)
 );
 create unique index market_instruments_isin_unique_idx on catalog.market_instruments (isin) where isin is not null;
-
 create table catalog.market_data_providers (
   id uuid primary key default gen_random_uuid(),
   code text not null unique check (code ~ '^[a-z0-9_-]{2,48}$'),
@@ -106,7 +96,6 @@ create table catalog.market_data_providers (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
-
 create table catalog.market_series (
   id uuid primary key default gen_random_uuid(),
   kind catalog.market_series_kind not null,
@@ -116,14 +105,12 @@ create table catalog.market_series (
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
-
 create table catalog.asset_price_series (
   series_id uuid primary key references catalog.market_series(id) on delete cascade,
   instrument_id uuid not null references catalog.market_instruments(id) on delete cascade,
   quote_currency_code text not null references catalog.currencies(code),
   unique (instrument_id, quote_currency_code)
 );
-
 create table catalog.fx_series (
   series_id uuid primary key references catalog.market_series(id) on delete cascade,
   base_currency_code text not null references catalog.currencies(code),
@@ -131,13 +118,11 @@ create table catalog.fx_series (
   check (base_currency_code <> quote_currency_code),
   unique (base_currency_code, quote_currency_code)
 );
-
 create table catalog.index_series (
   series_id uuid primary key references catalog.market_series(id) on delete cascade,
   indexer_id uuid not null references catalog.indexers(id) on delete cascade,
   unique (indexer_id)
 );
-
 create table catalog.market_observations (
   id uuid primary key default gen_random_uuid(),
   series_id uuid not null references catalog.market_series(id) on delete cascade,
@@ -148,7 +133,6 @@ create table catalog.market_observations (
   unique (series_id, provider_id, observed_at)
 );
 create index market_observations_series_time_idx on catalog.market_observations (series_id, observed_at desc);
-
 create table app_private.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default '' check (char_length(display_name) <= 80),
@@ -158,7 +142,6 @@ create table app_private.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table app_private.categories (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -174,7 +157,6 @@ create table app_private.categories (
   unique (id, user_id),
   unique nulls not distinct (user_id, name, flow, archived_at)
 );
-
 create table app_private.ledger_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -184,7 +166,6 @@ create table app_private.ledger_accounts (
   updated_at timestamptz not null default now(),
   unique (id, user_id)
 );
-
 create table app_private.accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -203,7 +184,6 @@ create table app_private.accounts (
   unique (ledger_account_id, user_id),
   foreign key (ledger_account_id, user_id) references app_private.ledger_accounts(id, user_id) on delete restrict
 );
-
 create table app_private.cards (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -222,7 +202,6 @@ create table app_private.cards (
   unique (id, user_id),
   foreign key (linked_account_id, user_id) references app_private.accounts(id, user_id) on delete restrict
 );
-
 create table app_private.credit_card_terms (
   card_id uuid primary key,
   user_id uuid not null,
@@ -239,7 +218,6 @@ create table app_private.credit_card_terms (
   foreign key (liability_ledger_account_id, user_id) references app_private.ledger_accounts(id, user_id) on delete restrict,
   foreign key (payer_account_id, user_id) references app_private.accounts(id, user_id) on delete restrict
 );
-
 create table app_private.import_batches (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -255,7 +233,6 @@ create table app_private.import_batches (
   unique (id, user_id),
   unique (user_id, fingerprint_hmac)
 );
-
 create table app_private.financial_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -274,7 +251,6 @@ create table app_private.financial_events (
   foreign key (category_id, user_id) references app_private.categories(id, user_id) on delete restrict,
   foreign key (import_batch_id, user_id) references app_private.import_batches(id, user_id) on delete restrict
 );
-
 create table app_private.ledger_postings (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -290,7 +266,6 @@ create table app_private.ledger_postings (
 );
 create index ledger_postings_event_idx on app_private.ledger_postings (user_id, event_id);
 create index ledger_postings_account_time_idx on app_private.ledger_postings (user_id, ledger_account_id, created_at desc);
-
 create table app_private.operation_fx_rates (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -308,7 +283,6 @@ create table app_private.operation_fx_rates (
 );
 alter table app_private.ledger_postings add constraint ledger_postings_operation_fx_rate_fkey
   foreign key (operation_fx_rate_id, user_id) references app_private.operation_fx_rates(id, user_id) on delete restrict;
-
 create table app_private.card_transactions (
   event_id uuid primary key,
   user_id uuid not null,
@@ -322,7 +296,6 @@ create table app_private.card_transactions (
   foreign key (event_id, user_id) references app_private.financial_events(id, user_id) on delete cascade,
   foreign key (card_id, user_id) references app_private.cards(id, user_id) on delete restrict
 );
-
 create table app_private.investment_assets (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -338,7 +311,6 @@ create table app_private.investment_assets (
   updated_at timestamptz not null default now(),
   unique (id, user_id)
 );
-
 create table app_private.investment_holdings (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -355,7 +327,6 @@ create table app_private.investment_holdings (
   foreign key (custody_account_id, user_id) references app_private.accounts(id, user_id) on delete restrict,
   foreign key (ledger_account_id, user_id) references app_private.ledger_accounts(id, user_id) on delete restrict
 );
-
 create table app_private.fixed_income_terms (
   asset_id uuid primary key,
   user_id uuid not null,
@@ -373,7 +344,6 @@ create table app_private.fixed_income_terms (
   unique (asset_id, user_id),
   foreign key (asset_id, user_id) references app_private.investment_assets(id, user_id) on delete cascade
 );
-
 create table app_private.fund_terms (
   asset_id uuid primary key,
   user_id uuid not null,
@@ -385,7 +355,6 @@ create table app_private.fund_terms (
   unique (asset_id, user_id),
   foreign key (asset_id, user_id) references app_private.investment_assets(id, user_id) on delete cascade
 );
-
 create table app_private.investment_transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -405,7 +374,6 @@ create table app_private.investment_transactions (
 );
 create index investment_transactions_asset_time_idx on app_private.investment_transactions (user_id, asset_id, traded_at, id);
 create index investment_transactions_holding_time_idx on app_private.investment_transactions (user_id, holding_id, traded_at, id);
-
 create table app_private.investment_trade_details (
   transaction_id uuid primary key,
   user_id uuid not null,
@@ -414,7 +382,6 @@ create table app_private.investment_trade_details (
   unique (transaction_id, user_id),
   foreign key (transaction_id, user_id) references app_private.investment_transactions(id, user_id) on delete cascade
 );
-
 create table app_private.investment_cash_details (
   transaction_id uuid primary key,
   user_id uuid not null,
@@ -422,7 +389,6 @@ create table app_private.investment_cash_details (
   unique (transaction_id, user_id),
   foreign key (transaction_id, user_id) references app_private.investment_transactions(id, user_id) on delete cascade
 );
-
 create table app_private.investment_charges (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -434,7 +400,6 @@ create table app_private.investment_charges (
   unique (id, user_id),
   foreign key (transaction_id, user_id) references app_private.investment_transactions(id, user_id) on delete cascade
 );
-
 create table app_private.investment_transfers (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -448,7 +413,6 @@ create table app_private.investment_transfers (
   foreign key (outbound_transaction_id, user_id) references app_private.investment_transactions(id, user_id) on delete cascade,
   foreign key (inbound_transaction_id, user_id) references app_private.investment_transactions(id, user_id) on delete cascade
 );
-
 create table app_private.investment_income_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -472,7 +436,6 @@ create table app_private.investment_income_events (
   foreign key (holding_id, user_id) references app_private.investment_holdings(id, user_id) on delete restrict,
   foreign key (reinvestment_transaction_id, user_id) references app_private.investment_transactions(id, user_id) on delete restrict
 );
-
 create table app_private.corporate_actions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -493,7 +456,6 @@ create table app_private.corporate_actions (
   check ((numerator is null and denominator is null) or (numerator > 0 and denominator > 0)),
   check (cash_amount is null or cash_amount >= 0)
 );
-
 create table app_private.manual_asset_quotes (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -508,7 +470,6 @@ create table app_private.manual_asset_quotes (
   foreign key (asset_id, user_id) references app_private.investment_assets(id, user_id) on delete cascade
 );
 create index manual_asset_quotes_latest_idx on app_private.manual_asset_quotes (user_id, asset_id, observed_at desc);
-
 create table app_private.recurrence_rules (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -536,7 +497,6 @@ create table app_private.recurrence_rules (
   check (end_date is null or end_date >= start_date),
   check ((payment_method = 'credit_card' and card_id is not null and account_id is null) or (payment_method <> 'credit_card' and card_id is null))
 );
-
 create table app_private.planned_occurrences (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -557,7 +517,6 @@ create table app_private.planned_occurrences (
   foreign key (settled_event_id, user_id) references app_private.financial_events(id, user_id) on delete restrict,
   check ((status = 'settled') = (settled_event_id is not null))
 );
-
 create table app_private.classification_rules (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -573,7 +532,6 @@ create table app_private.classification_rules (
   unique (user_id, flow, match_hmac),
   foreign key (category_id, user_id) references app_private.categories(id, user_id) on delete cascade
 );
-
 create table app_private.audit_revisions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -588,7 +546,6 @@ create table app_private.audit_revisions (
   unique (id, user_id)
 );
 create index audit_revisions_expiry_idx on app_private.audit_revisions (expires_at);
-
 create or replace function app_private.touch_updated_at()
 returns trigger
 language plpgsql
@@ -599,7 +556,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function app_private.assert_ledger_event_balanced()
 returns trigger
 language plpgsql
@@ -622,12 +578,10 @@ begin
   return null;
 end;
 $$;
-
 create constraint trigger ledger_postings_must_balance
 after insert or update or delete on app_private.ledger_postings
 deferrable initially deferred
 for each row execute procedure app_private.assert_ledger_event_balanced();
-
 do $$
 declare
   target text;
@@ -643,7 +597,6 @@ begin
   end loop;
 end;
 $$;
-
 do $$
 declare
   target text;
@@ -666,7 +619,6 @@ begin
   end loop;
 end;
 $$;
-
 create or replace function app_private.seed_v2_user()
 returns trigger
 language plpgsql
@@ -700,14 +652,12 @@ begin
   return new;
 end;
 $$;
-
 revoke all on all tables in schema catalog from public, anon, authenticated;
 revoke all on all tables in schema app_private from public, anon, authenticated;
 revoke all on all sequences in schema catalog from public, anon, authenticated;
 revoke all on all sequences in schema app_private from public, anon, authenticated;
 revoke execute on all functions in schema catalog from public, anon, authenticated;
 revoke execute on all functions in schema app_private from public, anon, authenticated;
-
 insert into catalog.currencies (code, name, symbol, decimal_places, is_fiat) values
   ('BRL', 'Real brasileiro', 'R$', 2, true),
   ('USD', 'Dólar americano', '$', 2, true),
@@ -715,13 +665,11 @@ insert into catalog.currencies (code, name, symbol, decimal_places, is_fiat) val
   ('BTC', 'Bitcoin', '₿', 8, false),
   ('ETH', 'Ether', 'Ξ', 18, false)
 on conflict (code) do update set name = excluded.name, symbol = excluded.symbol, decimal_places = excluded.decimal_places, is_fiat = excluded.is_fiat, active = true;
-
 insert into catalog.asset_types (code, name) values
   ('stock', 'Ação'), ('fii', 'Fundo imobiliário'), ('etf', 'ETF'), ('bdr', 'BDR'),
   ('fund', 'Fundo de investimento'), ('crypto', 'Criptomoeda'), ('fixed_income', 'Renda fixa'),
   ('pension', 'Previdência'), ('cash_box', 'Reserva'), ('other', 'Outro')
 on conflict (code) do update set name = excluded.name, active = true;
-
 insert into catalog.indexers (code, name, unit) values
   ('CDI', 'CDI', 'percentage'), ('SELIC', 'SELIC', 'percentage'), ('IPCA', 'IPCA', 'percentage')
 on conflict (code) do update set name = excluded.name, active = true;

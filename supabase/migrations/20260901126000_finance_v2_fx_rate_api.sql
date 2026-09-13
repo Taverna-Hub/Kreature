@@ -17,7 +17,6 @@ language sql security invoker set search_path = '' stable as $$
   where fx.user_id = (select auth.uid())
   order by fx.base_currency_code, fx.quote_currency_code, fx.observed_at desc, fx.id desc;
 $$;
-
 create or replace function api.write_fx_rate(p_command jsonb)
 returns uuid
 language plpgsql security invoker set search_path = '' as $$
@@ -43,7 +42,6 @@ begin
   return rate_id;
 end;
 $$;
-
 do $$
 declare routine text;
 begin

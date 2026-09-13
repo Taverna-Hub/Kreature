@@ -234,7 +234,9 @@ async function callRpc<T>(client: SupabaseClient, name: string, args: Json): Pro
   }
   const { data, error } = result;
   if (error) {
-    const status = error.code === "40001" ? 409 : error.code === "23505" ? 409 : error.code === "42501" ? 403 : 400;
+    const status = error.code === "40001" || error.code === "PT409" || error.code === "23505"
+      ? 409
+      : error.code === "42501" ? 403 : 400;
     throw new RequestError(safeMessage(error.code ?? undefined, error.message ?? ""), status, error.code ?? undefined);
   }
   return data as T;

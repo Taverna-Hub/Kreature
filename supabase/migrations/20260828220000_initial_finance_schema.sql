@@ -1,5 +1,4 @@
 create extension if not exists pgcrypto;
-
 create type public.institution_type as enum ('bank', 'broker', 'wallet', 'other');
 create type public.category_flow as enum ('income', 'expense');
 create type public.entry_kind as enum ('income', 'expense', 'investment', 'reserve', 'transfer', 'pix', 'card_purchase', 'credit_payment', 'adjustment');
@@ -8,7 +7,6 @@ create type public.investment_type as enum ('cash_box', 'cdb', 'cri', 'cra', 'fi
 create type public.quote_status as enum ('manual', 'ok', 'error');
 create type public.recurrence_frequency as enum ('once', 'daily', 'weekly', 'biweekly', 'monthly', 'yearly');
 create type public.theme_mode as enum ('light', 'dark', 'system');
-
 create table public.financial_institutions (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique check (slug ~ '^[a-z0-9-]+$'),
@@ -20,7 +18,6 @@ create table public.financial_institutions (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table public.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default '' check (char_length(display_name) <= 80),
@@ -29,7 +26,6 @@ create table public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create table public.categories (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -45,7 +41,6 @@ create table public.categories (
   unique (id, user_id),
   unique nulls not distinct (user_id, name, flow)
 );
-
 create table public.financial_accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -66,7 +61,6 @@ create table public.financial_accounts (
   updated_at timestamptz not null default now(),
   unique (id, user_id)
 );
-
 create table public.investments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -93,7 +87,6 @@ create table public.investments (
   unique (id, user_id),
   foreign key (account_id, user_id) references public.financial_accounts(id, user_id) on delete set null
 );
-
 create table public.credit_cards (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -112,7 +105,6 @@ create table public.credit_cards (
   unique (id, user_id),
   foreign key (payer_account_id, user_id) references public.financial_accounts(id, user_id) on delete set null
 );
-
 create table public.ledger_entries (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -142,7 +134,6 @@ create table public.ledger_entries (
   foreign key (investment_id, user_id) references public.investments(id, user_id) on delete set null,
   foreign key (credit_card_id, user_id) references public.credit_cards(id, user_id) on delete set null
 );
-
 create table public.card_purchases (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -164,7 +155,6 @@ create table public.card_purchases (
   foreign key (ledger_entry_id, user_id) references public.ledger_entries(id, user_id) on delete cascade,
   foreign key (category_id, user_id) references public.categories(id, user_id) on delete set null
 );
-
 create table public.classification_rules (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -177,7 +167,6 @@ create table public.classification_rules (
   unique (user_id, match, flow),
   foreign key (category_id, user_id) references public.categories(id, user_id) on delete cascade
 );
-
 create table public.planned_entries (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -198,21 +187,17 @@ create table public.planned_entries (
   foreign key (account_id, user_id) references public.financial_accounts(id, user_id) on delete set null,
   check (end_date is null or end_date >= start_date)
 );
-
 create index categories_user_flow_idx on public.categories (user_id, flow) where archived_at is null;
 create index accounts_user_active_idx on public.financial_accounts (user_id) where archived_at is null;
 create index entries_user_date_idx on public.ledger_entries (user_id, occurred_on desc, created_at desc);
 create index entries_account_date_idx on public.ledger_entries (account_id, occurred_on desc);
 create index entries_category_date_idx on public.ledger_entries (category_id, occurred_on desc);
 create index entries_transfer_group_idx on public.ledger_entries (user_id, transfer_group_id) where transfer_group_id is not null;
--- Fingerprints are used as a duplicate hint during import review. They are
--- intentionally not unique: a statement can contain legitimate repeated
--- movements with the same date, amount and description.
+create unique index entries_user_fingerprint_unique_idx on public.ledger_entries (user_id, fingerprint) where fingerprint is not null;
 create index investments_user_active_idx on public.investments (user_id) where archived_at is null;
 create index cards_user_active_idx on public.credit_cards (user_id) where archived_at is null;
 create index purchases_card_date_idx on public.card_purchases (card_id, occurred_on desc);
 create index planned_user_start_idx on public.planned_entries (user_id, start_date);
-
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql set search_path = public as $$
 begin
@@ -220,7 +205,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function public.seed_user_profile_and_categories()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -254,9 +238,7 @@ begin
   return new;
 end;
 $$;
-
 create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.seed_user_profile_and_categories();
-
 do $$
 declare target text;
 begin
@@ -265,7 +247,6 @@ begin
   end loop;
 end;
 $$;
-
 insert into public.financial_institutions (slug, name, type, bank_code, logo_key) values
   ('nubank', 'Nubank', 'bank', '260', 'nubank'),
   ('itau', 'Itaú', 'bank', '341', 'itau'),
@@ -284,10 +265,8 @@ insert into public.financial_institutions (slug, name, type, bank_code, logo_key
   ('neon', 'Neon', 'bank', '536', 'neon'),
   ('wise', 'Wise', 'wallet', null, 'wise')
 on conflict (slug) do update set name = excluded.name, type = excluded.type, bank_code = excluded.bank_code, logo_key = excluded.logo_key, active = true;
-
 alter table public.financial_institutions enable row level security;
 create policy financial_institutions_read on public.financial_institutions for select to authenticated using (active);
-
 do $$
 declare target text;
 begin
@@ -300,14 +279,11 @@ begin
   end loop;
 end;
 $$;
-
 revoke all on all tables in schema public from anon;
 grant select on public.financial_institutions to authenticated;
 grant select, insert, update, delete on public.profiles, public.categories, public.financial_accounts, public.investments, public.credit_cards, public.ledger_entries, public.card_purchases, public.classification_rules, public.planned_entries to authenticated;
-
 insert into storage.buckets (id, name, public) values ('category-images', 'category-images', false)
 on conflict (id) do update set public = false;
-
 create policy category_images_select_own on storage.objects for select to authenticated using (bucket_id = 'category-images' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy category_images_insert_own on storage.objects for insert to authenticated with check (bucket_id = 'category-images' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy category_images_update_own on storage.objects for update to authenticated using (bucket_id = 'category-images' and (storage.foldername(name))[1] = auth.uid()::text) with check (bucket_id = 'category-images' and (storage.foldername(name))[1] = auth.uid()::text);

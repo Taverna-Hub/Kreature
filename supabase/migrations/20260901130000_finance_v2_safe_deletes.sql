@@ -78,7 +78,6 @@ begin
   return query select requested_id, persisted_version;
 end;
 $$;
-
 create or replace function api.write_card(p_command jsonb)
 returns table (card_id uuid, card_version integer)
 language plpgsql security invoker set search_path = '' as $$
@@ -179,7 +178,6 @@ begin
   return query select requested_id, persisted;
 end;
 $$;
-
 create or replace function api.write_investment_asset(p_command jsonb)
 returns table (asset_id uuid, holding_id uuid, asset_version integer)
 language plpgsql security invoker set search_path = '' as $$
@@ -277,7 +275,6 @@ begin
   return query select requested_id, requested_holding, persisted;
 end;
 $$;
-
 do $$
 declare routine text;
 begin

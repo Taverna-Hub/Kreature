@@ -1,11 +1,9 @@
 -- A cash reserve has its own investment ledger but may live outside any bank account.
 alter table app_private.investment_holdings
   alter column custody_account_id drop not null;
-
 create unique index if not exists investment_holdings_unassigned_asset_key
   on app_private.investment_holdings (asset_id)
   where custody_account_id is null;
-
 create or replace function api.write_investment_asset(p_command jsonb)
 returns table (asset_id uuid, holding_id uuid, asset_version integer)
 language plpgsql security invoker set search_path = '' as $$

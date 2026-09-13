@@ -242,6 +242,15 @@ rule = data(ana, "write-recurrence-rule", command={
 rules_back = data(ana, "list-recurrence-rules")
 mine_rule = next(r for r in rules_back if r["id"] == rule["rule_id"])
 expect(mine_rule["sensitive"]["description"] == "Academia", "the plan payload survived the round trip")
+# A stale optimistic-lock version is a business conflict, not a serialization
+# failure. It must return once as HTTP 409; SQLSTATE 40001 makes PostgREST 14
+# retry the same failed transaction indefinitely.
+status, body = call(ana, "write-recurrence-rule", command={
+    "operation": "update", "id": rule["rule_id"], "expectedVersion": 0,
+    "rule": {"flow": "expense", "frequency": "monthly", "startDate": "2026-01-05", "amount": "89.90",
+             "currencyCode": "BRL", "paymentMethod": "pix", "accountId": checking,
+             "categoryId": category["id"], "sensitive": {"description": "Academia"}}})
+expect(status == 409, "a stale plan version returns one conflict response", f"{status} {json.dumps(body)[:160]}")
 
 data(ana, "write-planned-occurrence", command={
     "occurrence": {"recurrenceRuleId": rule["rule_id"], "scheduledFor": "2026-03-05",

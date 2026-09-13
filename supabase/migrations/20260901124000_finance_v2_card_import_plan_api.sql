@@ -6,7 +6,6 @@
 -- caller. Only the HMAC, the period and the encrypted metadata are kept: the
 -- file, the PDF, the spreadsheet and the extracted text are never stored.
 drop function if exists api.write_import_batch(jsonb);
-
 create or replace function api.write_import_batch(p_command jsonb)
 returns table (batch_id uuid, created boolean)
 language plpgsql security invoker set search_path = '' as $$
@@ -58,7 +57,6 @@ begin
   return query select requested, true;
 end;
 $$;
-
 -- A purchase split in N installments is N invoice-month facts, not one row the
 -- reader has to expand. Each installment balances on its own.
 create or replace function api.write_card_transaction(p_command jsonb)
@@ -167,7 +165,6 @@ begin
   return jsonb_build_object('event_ids', to_jsonb(created_ids), 'first_invoice_month', first_invoice_month);
 end;
 $$;
-
 -- Paying the invoice moves cash to the liability. It never touches the
 -- purchases, so a reopened invoice stays auditable.
 create or replace function api.pay_card_invoice(p_command jsonb)
@@ -223,7 +220,6 @@ begin
   return event_id;
 end;
 $$;
-
 create or replace function api.write_planned_occurrence(p_command jsonb)
 returns uuid
 language plpgsql security invoker set search_path = '' as $$
@@ -274,7 +270,6 @@ begin
   return occurrence_id;
 end;
 $$;
-
 -- Invoice totals belong to the ledger, not to a mutable "invoice" row.
 create or replace function api.card_invoices()
 returns table (
@@ -302,7 +297,6 @@ language sql security invoker set search_path = '' stable as $$
            posting.currency_code
   order by 1, 2;
 $$;
-
 do $$
 declare routine text;
 begin

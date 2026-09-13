@@ -44,14 +44,11 @@ begin
   return new;
 end;
 $$;
-
 revoke execute on function app_private.seed_v2_user() from public, anon, authenticated;
-
 drop trigger if exists on_auth_user_created_v2 on auth.users;
 create trigger on_auth_user_created_v2
 after insert on auth.users
 for each row execute procedure app_private.seed_v2_user();
-
 -- Existing accounts predate the trigger. Backfill so they can already read the
 -- v2 bootstrap while v1 is still the live application.
 insert into app_private.profiles (user_id, display_name, mascot, theme, reporting_currency_code)
@@ -62,7 +59,6 @@ select account.id,
        'BRL'
 from auth.users as account
 on conflict (user_id) do nothing;
-
 insert into app_private.categories (user_id, name, icon, color, flow, is_default)
 select account.id, seed.name, seed.icon, seed.color, seed.flow, true
 from auth.users as account

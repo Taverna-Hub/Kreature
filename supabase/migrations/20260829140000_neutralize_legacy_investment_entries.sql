@@ -38,12 +38,10 @@ from public.ledger_entries e
 where e.kind in ('investment', 'reserve')
   and e.financial_movement_id is null
 on conflict (id) do nothing;
-
 update public.ledger_entries
 set financial_movement_id = id
 where kind in ('investment', 'reserve')
   and financial_movement_id is null;
-
 -- Keep the original debit as the account leg, but give it the unambiguous
 -- neutral kind. `ignored_from_analytics` also protects any older client that
 -- still reads ledger rows directly instead of financial_movements.
@@ -51,7 +49,6 @@ update public.ledger_entries
 set kind = case when amount < 0 then 'investment_contribution'::public.entry_kind else 'investment_withdrawal'::public.entry_kind end,
     ignored_from_analytics = true
 where kind in ('investment', 'reserve');
-
 -- Headers created by the previous migration are upgraded too. An explicitly
 -- linked investment is safe to carry to the movement; an absent link stays
 -- marked as legacy_unbalanced rather than guessing an asset destination.
@@ -76,7 +73,6 @@ from (
 ) legacy
 where movement.id = legacy.financial_movement_id
   and movement.kind in ('investment_contribution', 'investment_withdrawal');
-
 -- If the legacy record explicitly named an investment, add its missing asset
 -- leg. This is an audit/balance leg only: it does not change the persisted
 -- investment value and cannot change the user's total patrimony.
@@ -124,7 +120,6 @@ where e.kind in ('investment_contribution', 'investment_withdrawal')
       and asset_leg.investment_id = e.investment_id
       and ((e.kind = 'investment_contribution' and asset_leg.amount > 0) or (e.kind = 'investment_withdrawal' and asset_leg.amount < 0))
   );
-
 -- Once both known legs exist, this is no longer an unbalanced legacy event.
 update public.financial_movements movement
 set legacy_unbalanced = false,

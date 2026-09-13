@@ -135,7 +135,6 @@ begin
   return query select requested_id, persisted_version;
 end;
 $$;
-
 create or replace function api.list_financial_events(
   p_limit integer default 100,
   p_before timestamptz default null
@@ -167,7 +166,6 @@ as $$
   order by event.occurred_at desc, event.id desc
   limit greatest(1, least(coalesce(p_limit, 100), 250));
 $$;
-
 create or replace function api.account_balances()
 returns table (
   account_id uuid,
@@ -187,7 +185,6 @@ as $$
   where account.user_id = (select auth.uid())
   group by account.id, account.currency_code;
 $$;
-
 create or replace view api.portfolio_positions
 with (security_invoker = true)
 as
@@ -215,7 +212,6 @@ join app_private.investment_assets asset on asset.id = holding.asset_id and asse
 left join app_private.investment_transactions transaction on transaction.holding_id = holding.id and transaction.user_id = holding.user_id
 left join app_private.investment_trade_details detail on detail.transaction_id = transaction.id and detail.user_id = transaction.user_id
 group by holding.user_id, holding.id, asset.id, asset.instrument_id, holding.custody_account_id, asset.currency_code;
-
 revoke all on function api.write_financial_event(jsonb) from public, anon;
 revoke all on function api.list_financial_events(integer, timestamptz) from public, anon;
 revoke all on function api.account_balances() from public, anon;
@@ -223,7 +219,6 @@ grant execute on function api.write_financial_event(jsonb) to authenticated;
 grant execute on function api.list_financial_events(integer, timestamptz) to authenticated;
 grant execute on function api.account_balances() to authenticated;
 grant select on api.portfolio_positions to authenticated;
-
 -- These grants are only useful through SECURITY INVOKER routines in the api
 -- schema. app_private itself is deliberately not exposed through PostgREST.
 grant usage on schema app_private to authenticated;

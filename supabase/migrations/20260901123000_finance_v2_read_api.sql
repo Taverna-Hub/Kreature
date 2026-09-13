@@ -10,7 +10,6 @@ grant select on app_private.card_transactions, app_private.credit_card_terms,
   app_private.corporate_actions, app_private.manual_asset_quotes,
   app_private.operation_fx_rates
 to authenticated;
-
 create or replace function api.list_cards()
 returns table (
   id uuid, version integer, institution_id uuid, linked_account_id uuid,
@@ -33,7 +32,6 @@ language sql security invoker set search_path = '' stable as $$
   where card.user_id = (select auth.uid())
   order by card.created_at;
 $$;
-
 create or replace function api.list_investment_assets()
 returns table (
   id uuid, version integer, instrument_id uuid, asset_type_code text, currency_code text,
@@ -52,7 +50,6 @@ language sql security invoker set search_path = '' stable as $$
   where asset.user_id = (select auth.uid())
   order by asset.created_at;
 $$;
-
 create or replace function api.list_recurrence_rules()
 returns table (
   id uuid, version integer, category_id uuid, account_id uuid, card_id uuid,
@@ -71,7 +68,6 @@ language sql security invoker set search_path = '' stable as $$
   where rule.user_id = (select auth.uid())
   order by rule.created_at;
 $$;
-
 create or replace function api.list_planned_occurrences()
 returns table (
   id uuid, recurrence_rule_id uuid, scheduled_for date,
@@ -90,7 +86,6 @@ language sql security invoker set search_path = '' stable as $$
   where occurrence.user_id = (select auth.uid())
   order by occurrence.scheduled_for;
 $$;
-
 create or replace function api.list_classification_rules()
 returns table (
   id uuid, category_id uuid, flow text,
@@ -105,7 +100,6 @@ language sql security invoker set search_path = '' stable as $$
   where rule.user_id = (select auth.uid())
   order by rule.created_at;
 $$;
-
 create or replace function api.list_import_batches()
 returns table (
   id uuid, kind text, period_start date, period_end date,
@@ -120,7 +114,6 @@ language sql security invoker set search_path = '' stable as $$
   where batch.user_id = (select auth.uid())
   order by batch.created_at;
 $$;
-
 -- Deduplication asks a yes/no question. The stored fingerprint never travels
 -- back to the client, so a stolen session cannot enumerate past imports.
 create or replace function api.import_batch_exists(p_fingerprint_hmac_b64 text)
@@ -132,11 +125,9 @@ language sql security invoker set search_path = '' stable as $$
     and batch.fingerprint_hmac = decode(p_fingerprint_hmac_b64, 'base64')
   limit 1;
 $$;
-
 -- An event and its legs are one atomic fact, so they travel together. Card and
 -- investment specifics stay in their own typed columns rather than a blob.
 drop function if exists api.list_financial_events(integer, timestamptz);
-
 create or replace function api.list_financial_events(
   p_limit integer default 200,
   p_before timestamptz default null,
@@ -218,7 +209,6 @@ language sql security invoker set search_path = '' stable as $$
   order by event.occurred_at desc, event.id desc
   limit greatest(1, least(coalesce(p_limit, 200), 1000));
 $$;
-
 do $$
 declare routine text;
 begin

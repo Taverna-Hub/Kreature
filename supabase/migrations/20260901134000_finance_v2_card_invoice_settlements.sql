@@ -14,7 +14,6 @@ create table app_private.card_invoice_settlements (
   foreign key (card_id, user_id) references app_private.cards(id, user_id) on delete restrict,
   foreign key (account_id, user_id) references app_private.accounts(id, user_id) on delete restrict
 );
-
 alter table app_private.card_invoice_settlements enable row level security;
 alter table app_private.card_invoice_settlements force row level security;
 create policy card_invoice_settlements_select_own on app_private.card_invoice_settlements
@@ -27,7 +26,6 @@ create policy card_invoice_settlements_delete_own on app_private.card_invoice_se
   for delete to authenticated using ((select auth.uid()) = user_id);
 create index card_invoice_settlements_user_id_idx on app_private.card_invoice_settlements (user_id);
 grant select, insert, update, delete on app_private.card_invoice_settlements to authenticated;
-
 create or replace function api.pay_card_invoice(p_command jsonb)
 returns uuid
 language plpgsql security invoker set search_path = '' as $$
@@ -95,6 +93,5 @@ begin
   return event_id;
 end;
 $$;
-
 revoke all on function api.pay_card_invoice(jsonb) from public, anon;
 grant execute on function api.pay_card_invoice(jsonb) to authenticated;

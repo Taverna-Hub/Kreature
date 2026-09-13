@@ -146,7 +146,6 @@ begin
   return query select requested_id, persisted_version;
 end;
 $$;
-
 -- Balances are the ledger's answer, not a stored column.
 create or replace function api.account_balances()
 returns table (account_id uuid, currency_code text, balance numeric)
@@ -161,7 +160,6 @@ language sql security invoker set search_path = '' stable as $$
   from app_private.accounts as account
   where account.user_id = (select auth.uid());
 $$;
-
 create or replace function api.card_balances()
 returns table (card_id uuid, currency_code text, balance numeric)
 language sql security invoker set search_path = '' stable as $$
@@ -176,7 +174,6 @@ language sql security invoker set search_path = '' stable as $$
   join app_private.cards as card on card.id = terms.card_id and card.user_id = terms.user_id
   where terms.user_id = (select auth.uid());
 $$;
-
 do $$
 declare routine text;
 begin
@@ -188,7 +185,6 @@ begin
   end loop;
 end;
 $$;
-
 -- The generic writer let the database mint the id, so the ciphertext the Edge
 -- Function had already bound to its own generated id could never be decrypted
 -- again. The caller now owns the id for every create.
@@ -326,6 +322,5 @@ begin
   return query select requested_id, persisted_version;
 end;
 $$;
-
 revoke all on function api.write_financial_event(jsonb) from public, anon;
 grant execute on function api.write_financial_event(jsonb) to authenticated;

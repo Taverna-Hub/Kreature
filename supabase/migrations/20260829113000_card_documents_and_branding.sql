@@ -2,23 +2,19 @@
 alter type public.entry_kind add value if not exists 'card_refund';
 alter type public.entry_kind add value if not exists 'card_fee';
 alter type public.entry_kind add value if not exists 'card_interest';
-
 alter table public.financial_institutions
   add column if not exists primary_color text,
   add column if not exists secondary_color text,
   add column if not exists foreground_color text;
-
 update public.financial_institutions set primary_color = case slug
   when 'nubank' then '#820ad1' when 'itau' then '#ec7000' when 'caixa' then '#005ca9'
   when 'wise' then '#9fe870' when 'santander' then '#ec0000' when 'inter' then '#ff7a00'
   when 'mercado-pago' then '#009ee3' else primary_color end,
   secondary_color = coalesce(secondary_color, primary_color), foreground_color = coalesce(foreground_color, '#ffffff');
-
 alter table public.credit_cards
   add column if not exists last_four char(4) check (last_four is null or last_four ~ '^[0-9]{4}$'),
   add column if not exists network text check (network is null or char_length(network) <= 40),
   add column if not exists cardholder_name text check (cardholder_name is null or char_length(cardholder_name) <= 120);
-
 create table if not exists public.imported_documents (
   id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   kind text not null check (kind in ('account_statement', 'card_statement', 'card_invoice')),
@@ -36,7 +32,6 @@ alter table public.card_purchases
   add column if not exists imported_document_id uuid references public.imported_documents(id) on delete set null;
 create index if not exists imported_documents_user_hash_idx on public.imported_documents(user_id, content_hash);
 create index if not exists entries_imported_document_idx on public.ledger_entries(imported_document_id);
-
 alter table public.imported_documents enable row level security;
 create policy imported_documents_select_own on public.imported_documents for select to authenticated using (auth.uid() = user_id);
 create policy imported_documents_insert_own on public.imported_documents for insert to authenticated with check (auth.uid() = user_id);

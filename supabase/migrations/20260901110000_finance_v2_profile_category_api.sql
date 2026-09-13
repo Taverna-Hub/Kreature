@@ -25,7 +25,6 @@ begin
   end if;
 end;
 $$;
-
 create or replace function api.write_category(p_command jsonb)
 returns table (category_id uuid)
 language plpgsql
@@ -77,7 +76,6 @@ begin
   return query select requested_id;
 end;
 $$;
-
 revoke all on function api.write_profile(jsonb), api.write_category(jsonb) from public, anon;
 grant execute on function api.write_profile(jsonb), api.write_category(jsonb) to authenticated;
 grant update on app_private.profiles to authenticated;

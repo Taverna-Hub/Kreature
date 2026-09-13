@@ -7,7 +7,6 @@ from public.financial_institutions as source
 on conflict (kind, legal_name) do update
   set active = excluded.active,
       updated_at = now();
-
 insert into catalog.financial_institutions (organization_id, slug, bank_code, logo_key)
 select organization.id, source.slug, source.bank_code, source.logo_key
 from public.financial_institutions as source
@@ -18,7 +17,6 @@ on conflict (slug) do update
   set organization_id = excluded.organization_id,
       bank_code = excluded.bank_code,
       logo_key = excluded.logo_key;
-
 -- Categories remain plaintext by design, but private: the trigger creates one
 -- independent copy for the authenticated user and RLS enforces ownership.
 create or replace function app_private.seed_v2_user()
