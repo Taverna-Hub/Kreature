@@ -132,7 +132,7 @@ export function settleOccurrence(
       plannedOccurrenceKey: occurrence.key,
     });
     const entry = state.entries.find((item) => item.id === purchase.ledgerEntryId)!;
-    settleException(state, plan, occurrence, effectiveDate, effectiveAmount, entry);
+    settleException(plan, occurrence, effectiveDate, effectiveAmount, entry);
     return entry;
   }
   if (!institution) throw new Error("Selecione uma conta ativa para concluir a cobrança.");
@@ -149,12 +149,11 @@ export function settleOccurrence(
     plannedOccurrenceKey: occurrence.key,
     source: "planned",
   });
-  settleException(state, plan, occurrence, effectiveDate, effectiveAmount, entry);
+  settleException(plan, occurrence, effectiveDate, effectiveAmount, entry);
   return entry;
 }
 
 function settleException(
-  state: FinanceState,
   plan: PlannedEntry,
   occurrence: PlannedOccurrence,
   effectiveDate: string,

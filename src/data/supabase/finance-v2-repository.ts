@@ -605,7 +605,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
       const metadataChanged = !prior || !same({ ...prior, image: undefined, imagePath: undefined }, { ...category, image: undefined, imagePath: undefined });
       const imageChanged = Boolean(prior && (prior.imagePath !== category.imagePath || (category.image && !category.imagePath)));
       if (prior && !metadataChanged && !imageChanged) continue;
-      const imagePath = await this.categoryImagePath(category, prior);
+      const imagePath = await this.categoryImagePath(category);
       await this.gateway.writeCategory({
         operation: prior ? "update" : "create",
         id: prior ? category.id : undefined,
@@ -629,7 +629,7 @@ export class SupabaseFinanceV2Repository implements FinanceRepository {
     }
   }
 
-  private async categoryImagePath(category: Category, prior?: Category) {
+  private async categoryImagePath(category: Category) {
     let imagePath = category.imagePath;
     if (category.image && !imagePath) {
       const { data: session } = await getSupabase().auth.getSession();

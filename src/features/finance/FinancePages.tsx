@@ -2807,11 +2807,7 @@ function ProfileStyleSummary({ profile }: { profile: ProfileConfig }) {
     <dl>{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
   </section>;
 }
-const normalizeText = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+
 const entryKindLabel = (kind: EntryKind) =>
   ({
     internal_transfer: "Transferência interna",
