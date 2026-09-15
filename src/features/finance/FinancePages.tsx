@@ -2477,7 +2477,7 @@ function CompleteOccurrenceDialog({
   onClose: () => void;
   onConfirm: (effectiveDate: string, effectiveAmount: string) => Promise<void>;
 }) {
-  const [effectiveDate, setEffectiveDate] = useState(occurrence.date);
+  const [effectiveDate, setEffectiveDate] = useState(() => occurrence.date > today() ? today() : occurrence.date);
   const [effectiveAmount, setEffectiveAmount] = useState(occurrence.amount);
   const isCard = occurrence.paymentMethod === "credit_card";
   return (

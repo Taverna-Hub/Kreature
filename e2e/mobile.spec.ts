@@ -15,6 +15,42 @@ test("profile character fits inside its frame", async ({ page }) => {
 
 
 const sizes = [[320, 568], [360, 640], [390, 844], [430, 932], [844, 390], [1440, 1000]] as const;
+test("category actions keep the shared menu layout on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/lancamentos");
+  await page.getByRole("tab", { name: "Categorias" }).click();
+  await page.locator(".category-card .action-menu-trigger").first().click();
+
+  const menu = page.getByRole("menu");
+  const edit = page.getByRole("menuitem", { name: "Editar" });
+  await expect(menu).toBeVisible();
+  const geometry = await edit.evaluate((button) => {
+    const item = button.getBoundingClientRect();
+    const popover = button.parentElement!.getBoundingClientRect();
+    const [icon, label] = Array.from(button.children).map((child) => child.getBoundingClientRect());
+    return {
+      itemWidth: item.width,
+      popoverWidth: popover.width,
+      iconCenterY: icon.y + icon.height / 2,
+      labelCenterY: label.y + label.height / 2,
+    };
+  });
+  expect(geometry.itemWidth).toBeGreaterThan(geometry.popoverWidth - 16);
+  expect(Math.abs(geometry.iconCenterY - geometry.labelCenterY)).toBeLessThan(2);
+});
+
+test("a future planning occurrence can be confirmed today", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-09-13T15:00:00Z"));
+  await page.goto("/planejamento");
+  await page.locator(".planning-entry .action-menu-trigger").first().click();
+  await page.getByRole("menuitem", { name: "Marcar como realizado" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Concluir planejamento" });
+  await expect(dialog.getByRole("button", { name: "Data efetiva" })).toContainText("13/09/2026");
+  await dialog.getByRole("button", { name: "Concluir em 13/09/2026" }).click();
+  await expect(page.locator(".planning-entry").first()).toContainText("Realizado");
+  await expect(dialog).toHaveCount(0);
+});
 const routes = ["/resumo", "/lancamentos", "/patrimonio/instituicoes", "/planejamento", "/perfil"];
 for (const [width, height] of sizes) for (const theme of ["light", "dark"]) {
   test(`${width}x${height} ${theme}: five screens and editor`, async ({ page }, testInfo) => {
